@@ -1,73 +1,24 @@
 
 
-extern "C"
-{
-#include <squirrel.h>
-#include <sqstdblob.h>
-#include <sqstdsystem.h>
-#include <sqstdio.h>
-#include <sqstdmath.h>
-#include <sqstdstring.h>
-#include <sqstdaux.h>
-}
 
 #include "Arduino.h"
 #include "acorns.h"
 
+
+
+
+
 /************************************************************************************************************/
 //Data Structures, forward declarations
 
+/*
+quotes = {
+"\"The runes read I serve but the good, of life and lib
 
-//The userdata struct for each loadedProgram interpreter
-struct loadedProgram
-{
+}*/
 
-  //Points to the slot in the function table where the pointer to this is stored,
-  //So we can zero it when we free it.
-  struct loadedProgram ** slot;
-  //This is how we can know which program to replace when updating with a new version
-  char programID[16];
-  //The first 30 bytes of a file identify its "version" so we don't
-  //replace things that don't need replacing.
-  char hash[30];
-
-  //This is the input buffer that gives us an easy way to send things to a program
-  //in excess of the 1500 byte limit for UDP. We might also use it for other stuff later.
-  char * inputBuffer;
-
-  //How many bytes are in the input buffer.
-  int inputBufferLen;
-
-  //1  or above if the program is busy, don't mess with it in any way except setting/getting vars and making sub-programs.
-  //0 means you can delete, replace, etc
-
-  //When a child interpreter runs, it increments all parents and itself.
-  //In this way it is kind of like a reference count.
-  //Note that it's not the same as GIL, you can yield the GIL but still flag a
-  //program as busy so the other tasts don't mess with it.
-  char busy;
-
-  HSQUIRRELVM vm;
-
-  //We often use sq_newthread, this is where we store the thread handle so
-  //We don't have to clutter up a VM namespace.
-  HSQOBJECT threadObj;
   
-  //A parent proram, used because we don't want to stop a running program's parent
-  struct loadedProgram * parent;
-
-  //A reference count for this struct itself.
-  //We only change it under the GIL lock.
-  //It's purpose is that the interpreter thread must know if
-  //someone has deleted and replaced a VM while we yield.
-
-  //This lets us set the VM to 0 to indicate that a program has ended.
-  //And still have this struct around to read that info from.
-
-  //Essentially, this implements zombie processes, handles to things that don't exist.
-  char refcount;
-
-};
+  
 
 //Represents a request to the thread pool to execute the given function
 //with the loadedProgram and the arg as its params.
@@ -81,9 +32,13 @@ struct Request
   void * arg;
 };
 
+
+
+
 ///declarations
 
 static void deref_prog(loadedProgram *);
+static struct loadedProgram* _programForId(const char * id);
 
 
 
@@ -139,6 +94,8 @@ static TaskHandle_t sqTasks[ACORNS_THREADS];
 //The queue going into the thread pool
 static QueueHandle_t request_queue;
 
+
+
 //Create and send a request to the thread pool
 static void _makeRequest(loadedProgram * program, void (*f)(loadedProgram *, void *), void * arg)
 {
@@ -154,6 +111,19 @@ static void _makeRequest(loadedProgram * program, void (*f)(loadedProgram *, voi
   r.f = f;
   r.arg = arg;
   xQueueSend(request_queue, &r, portMAX_DELAY);
+}
+
+void _Acorns::makeRequest(char * id, void (*f)(loadedProgram *, void *), void * arg)
+{
+  GIL_LOCK;
+  loadedProgram * program = _programForId(id);
+  if(program==0)
+  {
+    return;
+  }
+  _makeRequest(program, f, arg);
+  GIL_UNLOCK;
+
 }
 
 
@@ -195,6 +165,135 @@ fexit:
     GIL_UNLOCK;
   }
 }
+
+
+/**********************************************************************************************/
+//Callback stuff
+
+
+void deref_cb(CallbackData * p)
+{
+  p->refcount--;
+
+  //If either reference is done with it,
+  //The callback isn't happening, cleanup right away
+  if(p->cleanup)
+    {
+      p->cleanup(p->prog, p->userpointer);
+    }
+  p->cleanup = 0;
+
+
+  if(p->callable)
+  {
+    if(p->prog)
+    {
+      sq_release(p->prog->vm, p->callable);
+    }
+    //Setting the callable to 0 is the flag not
+    //To try to call this callback anymore
+    p->callable=0;
+  }
+
+  //Deal with the linked list entry in the program
+  CallbackData * x = p->prog->callbackRecievers;
+  //Just delete if there's no list
+  if (p->prog->callbackRecievers)
+  {
+    p->prog->callbackRecievers =0;
+  }
+
+
+  //There's callbacks, but the first one isn't this
+  else if (x)
+  {
+    CallbackData * last =x;
+    while(x)
+    {
+      //If we find it, link the one before to the one after
+      if(x==p)
+      {
+        if(x->next)
+        {
+        last->next = x->next;
+        }
+        else
+        {
+          last->next=0;
+        }
+      }
+      last = x;
+    }
+  }
+  
+  if(p->refcount==0)
+  {
+   free(p);
+  }
+}
+
+static SQInteger cb_release_hook(SQUserPointer p,SQInteger size)
+{
+  deref_cb(*((CallbackData **)p));
+}
+
+//Gets the callable at stack index idx, and return a CallbackData you can use to call it.
+//Pushes an opaque subscription object to the stack. The callback is canceled if that ever gets 
+//garbage collected
+struct CallbackData* _Acorns::acceptCallback(HSQUIRRELVM vm, SQInteger idx,void (*cleanup)(struct loadedProgram *, void *))
+{
+  HSQOBJECT * callable = (HSQOBJECT * )malloc(sizeof(HSQOBJECT));
+  sq_resetobject(callable);
+
+  SQObjectType t = sq_gettype(vm, idx);
+  if((t!=OT_CLOSURE)&&(t!=OT_NATIVECLOSURE)&&(t!=OT_INSTANCE)&&(t!=OT_USERDATA))
+  {
+    sq_throwerror(vm, "Supplied object does not appear to be callable.");
+  }
+  sq_getstackobj(vm,idx,callable);
+
+
+  //This callback data is a ref to the callable
+  sq_addref(vm, callable);
+
+  CallbackData * d = (CallbackData*) malloc(sizeof(CallbackData));
+
+  d->callable = callable;
+  d->cleanup =cleanup;
+
+  struct loadedProgram * prg = ((loadedProgram *)sq_getforeignptr(vm));
+  Serial.println((int)prg);
+  //One for the user side, one for the internal side that actually recieves the data.
+  d->refcount = 2;
+
+  d->prog = prg;
+
+  if(prg->callbackRecievers ==0)
+  {
+    prg->callbackRecievers = d;
+  }
+
+  else
+  {
+    CallbackData * p = prg->callbackRecievers;
+
+    while(p)
+    {
+      p=p->next;
+    }
+    p->next = d;
+  }
+  
+  CallbackData ** x=0;
+  sq_newuserdata(vm,sizeof(void *));
+  sq_getuserdata(vm,-1, (SQUserPointer *)&x, 0);
+  sq_setreleasehook(vm, -1, cb_release_hook);
+  *x = d;
+
+
+  return d;
+}
+
 
 
 //**********************************************************************************8
@@ -291,6 +390,13 @@ static int _closeProgram(const char * id)
   }
 }
 
+int _Acorns::closeProgram(const char * id)
+{
+  GIL_LOCK;
+  _closeProgram(id);
+  GIL_UNLOCK;
+}
+
 //Load a new program from source code with the given ID, replacing any with the same ID if the
 //first 30 bytes are different. The new program will have its own global scope that an inner scope of the root interpreter's.
 //You will be able to use getdelegate to get at the root table directly.
@@ -338,15 +444,17 @@ static int _loadProgram(const char * code, const char * id)
       loadedPrograms[i] = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
       loadedPrograms[i]->parent = rootInterpreter;
       loadedPrograms[i]->refcount = 1;
-
+      loadedPrograms[i]-> callbackRecievers =0;
+      loadedPrograms[i]->busy = 0;
       //This is so the dereference function can free the slot in the table
       //By itself
       loadedPrograms[i]->slot = &loadedPrograms[i];
 
       HSQUIRRELVM vm;
       vm = sq_newthread(rootInterpreter->vm, 1024);
+      sq_setforeignptr(vm, &loadedPrograms[i]);
       sq_resetobject(&loadedPrograms[i]->threadObj);
-
+      loadedPrograms[i]->vm = vm;
 
       //Get the thread handle, ref it so it doesn't go away, then store it in the loadedProgram
       //and pop it. Now the thread is independant
@@ -385,11 +493,24 @@ static int _loadProgram(const char * code, const char * id)
 }
 
 
+int _Acorns::loadProgram(const char * code, const char * id)
+{
+  GIL_LOCK;
+  _loadProgram(code, id);
+  GIL_UNLOCK;
+}
+
+//****************************************************************************/
+//Callbacks management
+
+
+
 //*********************************************************************************
 //REPL
 
 
 static HSQUIRRELVM replvm;
+static loadedProgram * replprogram;
 static SQChar  replbuffer[1024];
 static int replpointer = 0;
 static int startofline = 0;
@@ -544,13 +665,16 @@ void _Acorns::begin()
   {
     loadedPrograms[i] == 0;
   }
-
+  
 
   //Start the root interpreter
   const char * code =  "'The only line in this root program currently is this comment";
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
+  sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
+    Serial.println((int)rootInterpreter);
+
   memcpy(rootInterpreter->hash, code, 30);
   rootInterpreter->busy = 0;
 
@@ -570,15 +694,33 @@ void _Acorns::begin()
                            );
   }
 
-  rootInterpreter->vm = sq_open(1024);
   Serial.println("Initialized root interpreter");
 
   addlibs(rootInterpreter->vm);
   Serial.println("Added core libraries");
 
   replvm = sq_newthread(rootInterpreter->vm, 1024);
+  replprogram = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
+  sq_setforeignptr(replvm, replprogram);
+  replprogram -> busy = 0;
+  replprogram-> callbackRecievers =0;
+  replprogram-> parent = rootInterpreter;
+  replprogram->vm = replvm;
+
   Serial.println("Started REPL interpreter");
 
+}
+
+SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fname)
+{
+    GIL_LOCK;
+    loadedProgram * p = _programForId(id);
+    sq_pushroottable(p->vm);
+    sq_pushstring(p->vm,fname,-1);
+    sq_newclosure(p->vm,f,0); //create a new function
+    sq_newslot(p->vm,-3,SQFalse);
+    sq_pop(p->vm,1); //pops the root table
+    GIL_UNLOCK;
 }
 
 //*******************************************************/
