@@ -948,13 +948,18 @@ void _Acorns::begin()
   sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
 
 
-
   memcpy(rootInterpreter->hash, code, 30);
   rootInterpreter->busy = 0;
 
   request_queue = xQueueCreate( 25, sizeof(struct Request));
 
-  //Add Arduino bindings
+
+  //Make the system table
+  sq_pushroottable(rootInterpreter->vm);
+  sq
+  sq_newtableex(rootInterpreter->vm,8);
+  sq
+  sq_newclosure(v, me)
 
 
 
@@ -983,7 +988,7 @@ void _Acorns::begin()
   replprogram->vm = replvm;
 
   //Clear the stack, just in case
-  sq_settop(rootInterpreter->vm, 0);
+  sq_settop(rootInterpreter->vm, 1);
 
   Serial.print("Free Heap: ");
   Serial.print(ESP.getFreeHeap());
