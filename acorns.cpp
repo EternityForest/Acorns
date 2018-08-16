@@ -97,13 +97,17 @@ static SQInteger sqrandom(HSQUIRRELVM v)
     "\"This road is longer for some than others.\"",
     "\"He carefully packed his travelsack before setting out.\"",
     "\"His staff had been with him on many adventures.\"",
-    "\"From the top of the hill, he could see for miles\"",
-    "\"She knew better than the others why the river was dry\"",
-    "\"Only the fireflies lit the path as they made their way through the dark forest\"",
-    "\"The treasure they sought had been buried years ago\"",
-    "\"The stone glowed faintly when they passed by the door\"",
-    "\"The mountain rose before them at the end of the path\"",
-    "\"Her mother had warned her about this road\"",
+    "\"From the top of the hill, he could see for miles.\"",
+    "\"She knew better than the others why the river was dry.\"",
+    "\"Only the fireflies lit the path as they made their way through the dark forest.\"",
+    "\"The treasure they sought had been buried years ago.\"",
+    "\"The stone glowed faintly when they passed by the door.\"",
+    "\"The mountain rose before them at the end of the path.\"",
+    "\"Her mother had warned her about this road.\"",
+    "\"The Caravansarai was still miles ahead.\"",
+    "\"His cloak was well-worn and had many small pockets\"",
+    "\"Roads go ever ever on,\nOver rock and under tree,\nBy caves where never sun has shone,\nBy streams that never find the sea;\nOver snow by winter sown,\nAnd through the merry flowers of June,\nOver grass and over stone,\nAnd under mountains in the moon.\"\n-- J. R. R. Tolkien ",
+    
     0
 };
 
@@ -890,7 +894,6 @@ SQObject sqSerialBaseClass;
 void _Acorns::begin()
 {
 
-
   Serial.println("Acorns: Squirrel for Arduino");
   Serial.println("Based on: http://www.squirrel-lang.org/\n");
 
@@ -965,8 +968,7 @@ void _Acorns::begin()
                            );
   }
 
-  Serial.println("Initialized root interpreter");
-
+  Serial.println("Initialized root interpreter.");
   addlibs(rootInterpreter->vm);
   Serial.println("Added core libraries");
 
@@ -978,7 +980,12 @@ void _Acorns::begin()
   replprogram-> parent = rootInterpreter;
   replprogram->vm = replvm;
 
-  Serial.println("Started REPL interpreter\n");
+  //Clear the stack, just in case
+  sq_settop(rootInterpreter->vm, 0);
+
+  Serial.print("Free Heap: ");
+  Serial.print(ESP.getFreeHeap());
+  Serial.println("\nStarted REPL interpreter\n");
   //All booted 
   Serial.println(acorn_getQuote());
 }
@@ -994,6 +1001,20 @@ SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fnam
     sq_pop(p->vm,1); //pops the root table
     GIL_UNLOCK;
 }
+
+
+SQInteger _Acorns::setIntVariable(const char *id,long long value,const char *fname)
+{
+    GIL_LOCK;
+    loadedProgram * p = _programForId(id);
+    sq_pushroottable(p->vm);
+    sq_pushstring(p->vm,fname,-1);
+    sq_pushinteger(p->vm, value);
+    sq_newslot(p->vm,-3,SQFalse);
+    sq_pop(p->vm,1); //pops the root table
+    GIL_UNLOCK;
+}
+
 
 //*******************************************************/
 //Compatibility

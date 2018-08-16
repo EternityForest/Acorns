@@ -41,6 +41,10 @@ This will return that, however the system *may* unload an imported object at any
 
 Right now the only strategy is the user's import hook.
 
+### pinMode/digitalWrite/digitalRead/analogRead
+
+As the Arduino functions. HIGH, LOW, INPUT, INPUT_PULLUP, and OUTPUT are defined as global variables.
+
 ## API
 
  

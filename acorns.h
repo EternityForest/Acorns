@@ -26,6 +26,7 @@ class _Acorns
     void makeRequest(char *, void (*f)(loadedProgram *, void *), void * arg);
     
     SQInteger registerFunction(const char* id,SQFUNCTION f,const char *fname);
+    SQInteger setIntVariable(const char *id,long long value,const char *fname);
 
     void addArduino();
 

@@ -133,4 +133,9 @@ void _Acorns::addArduino()
   registerFunction(0, sqanalogread, "analogRead");
   registerFunction(0, sqdigitalwrite, "digitalWrite");
   registerFunction(0, sqpinmode,"pinMode");
+  setIntVariable(0,HIGH,"HIGH");
+  setIntVariable(0,LOW,"LOW");
+  setIntVariable(0,INPUT,"INPUT");
+  setIntVariable(0,INPUT_PULLUP,"INPUT_PULLUP");
+  setIntVariable(0,OUTPUT,"OUTPUT");
 }
