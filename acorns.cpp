@@ -45,11 +45,7 @@ static struct loadedProgram* _programForId(const char * id);
 
 //The global interpreter lock. Almost any messing
 //with of interpreters uses this.
-static SemaphoreHandle_t gil_lock;
-
-//Wait 10 million ticks which is probably days, but still assert it if it fails
-#define GIL_LOCK assert(xSemaphoreTake(gil_lock,10000000))
-#define GIL_UNLOCK xSemaphoreGive(gil_lock)
+SemaphoreHandle_t _acorns_gil_lock;
 
 
 
@@ -92,82 +88,69 @@ static SQInteger sqrandom(HSQUIRRELVM v)
   return SQ_ERROR;
 }
 
+
+/************************************************************************/
+//Quotes system
+
+ const char  * acorn_Quoteslist[] = {
+    "\"The men waited some time at the outpost.\"",
+    "\"This road is longer for some than others.\"",
+    "\"He carefully packed his travelsack before setting out.\"",
+    "\"His staff had been with him on many adventures.\"",
+    "\"From the top of the hill, he could see for miles\"",
+    "\"She knew better than the others why the river was dry\"",
+    "\"Only the fireflies lit the path as they made their way through the dark forest\"",
+    "\"The treasure they sought had been buried years ago\"",
+    "\"The stone glowed faintly when they passed by the door\"",
+    "\"The mountain rose before them at the end of the path\"",
+    "\"Her mother had warned her about this road\"",
+    0
+};
+
+static int numQuotes()
+{
+    int i =0;
+  
+    while(acorn_Quoteslist[i])
+    {
+        i++;
+    }
+  return(i);
+
+}
+
+static const char * acorn_getQuote()
+{
+    return acorn_Quoteslist[(xor64()%numQuotes())];
+}
+
 /*************************************************************************/
 //Misc Arduino
-static SQInteger sqmillis(HSQUIRRELVM v)
-{
-  sq_pushinteger(v, millis());
-  return(1);
-}
 
-//
-static SQInteger sqmicros(HSQUIRRELVM v)
-{
-  sq_pushinteger(v, micros());
-  return(1);
-}
+/*
+//Warning: this uses undocumented internals of the arduino handle
 
-static SQInteger sqdelay(HSQUIRRELVM v)
+static SQInteger squartread(HSQUIRRELVM v)
 {
- SQInteger i = sq_gettop(v);
-  SQInteger d =0;
-  if(i==2)
-  {
-    sq_getinteger(v, 2, &d);
-   
-    //Delay for the given number of milliseconds
-    GIL_UNLOCK;
-    delay(d);
-    GIL_LOCK;
+
+   SQInteger ticks = 
+
+
+    uart_t * uart = &_uart_bus_array[n]
+    if(uart == NULL || uart->queue == NULL) {
+        return 0;
+    }
+    uint8_t c;
+    if(xQueueReceive(uart->queue, &c, portMAX_DELAY)) {
+        return c;
+    }
     return 0;
-  }
-  return SQ_ERROR;
-}
+}*/
 
-static SQInteger sqdigitalread(HSQUIRRELVM v)
-{
- SQInteger i = sq_gettop(v);
-  SQInteger d =0;
-  if(i==2)
-  {
-    sq_getinteger(v, 2, &d);
-   
-    //Delay for the given number of milliseconds
-    sq_pushinteger(v, digitalRead(d));
-    return 1;
-  }
-  return SQ_ERROR;
-}
 
-static SQInteger sqdigitalwrite(HSQUIRRELVM v)
-{
- SQInteger i = sq_gettop(v);
-  SQInteger d =0;
-  SQInteger val=0;
-  if(i==3)
-  {
-    sq_getinteger(v, 2, &d);
-    sq_getinteger(v, 3, &val);
-    digitalWrite(d,val);
-    return 0;
-  }
-  return SQ_ERROR;
-}
 
-static SQInteger sqpinmode(HSQUIRRELVM v)
-{
- SQInteger i = sq_gettop(v);
-  SQInteger d =0;
-  SQInteger val=0;
-  if(i==3)
-  {
-    sq_getinteger(v, 2, &d);
-    sq_getinteger(v, 3, &val);
-    pinMode(d,val);
-    return 0;
-  }
-  return SQ_ERROR;
-}
+//This is meant to be part of a squirrel class
+
 
 /*************************************************************************************/
 //Module system
@@ -898,14 +881,28 @@ static void addlibs(HSQUIRRELVM v)
   sq_pop(v, 1);
 }
 
+SQObject sqSerialBaseClass;
+
+
+
+
 //Initialize squirrel task management
 void _Acorns::begin()
 {
+
+
+  Serial.println("Acorns: Squirrel for Arduino");
+  Serial.println("Based on: http://www.squirrel-lang.org/\n");
+
   for (char i = 0; i < ACORNS_MAXPROGRAMS; i++)
   {
     loadedPrograms[i] == 0;
   }
   
+
+  _acorns_gil_lock = xSemaphoreCreateBinary( );
+  xSemaphoreGive(_acorns_gil_lock);
+
   entropy += esp_random();
   xor64();
   entropy += esp_random();
@@ -916,6 +913,27 @@ void _Acorns::begin()
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
+
+
+  //Create the serial class
+  /*
+  sq_newclass(rootInterpreter->vm,SQFalse);
+  sq_resetobject(&sqSerialBaseClass)
+  sq_getstackobj(rootInterpreter->vm,-1, &sqSerialBaseClass);
+
+  sq_addref(rootInterpreter->vm, &sqSerialBaseClass);
+
+  sq_pushstring(rootInterpreter->vm, "begin", -1);
+  sq_newclosure(rootInterpreter->vm, sqserial_begin, 0)
+  sq_newslot(rootInterpreter->vm,-3, SQFalse);
+  */
+
+
+  registerFunction(0, sqrandom, "random");
+  registerFunction(0, sqimport,"import");
+
+  //This is part of the class, it's in acorns_aduinobindings
+  addArduino();
 
   //Use the root interpeter to create the modules table
   sq_newtableex(rootInterpreter->vm,8);
@@ -929,19 +947,10 @@ void _Acorns::begin()
   memcpy(rootInterpreter->hash, code, 30);
   rootInterpreter->busy = 0;
 
-  gil_lock = xSemaphoreCreateBinary( );
-  xSemaphoreGive(gil_lock);
   request_queue = xQueueCreate( 25, sizeof(struct Request));
 
   //Add Arduino bindings
-  registerFunction(0, sqrandom, "random");
-  registerFunction(0, sqdelay,"delay");
-  registerFunction(0, sqmicros,"micros");
-  registerFunction(0, sqmillis, "millis");
-  registerFunction(0, sqdigitalread, "digitalRead");
-  registerFunction(0, sqdigitalwrite, "digitalWrite");
-  registerFunction(0, sqpinmode,"pinMode");
-  registerFunction(0, sqimport,"import");
+
 
 
   for (char i = 0; i < ACORNS_THREADS; i++)
@@ -969,8 +978,9 @@ void _Acorns::begin()
   replprogram-> parent = rootInterpreter;
   replprogram->vm = replvm;
 
-  Serial.println("Started REPL interpreter");
-
+  Serial.println("Started REPL interpreter\n");
+  //All booted 
+  Serial.println(acorn_getQuote());
 }
 
 SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fname)

@@ -1,6 +1,6 @@
 #pragma once
 
-
+#include "Arduino.h"
 
 extern "C"
 {
@@ -26,6 +26,8 @@ class _Acorns
     void makeRequest(char *, void (*f)(loadedProgram *, void *), void * arg);
     
     SQInteger registerFunction(const char* id,SQFUNCTION f,const char *fname);
+
+    void addArduino();
 
 };
 //The userdata struct for each loadedProgram interpreter
@@ -106,7 +108,11 @@ void deref_cb(CallbackData * p);
 
 extern _Acorns Acorns;
 
+extern SemaphoreHandle_t _acorns_gil_lock;
 
+//Wait 10 million ticks which is probably days, but still assert it if it fails
+#define GIL_LOCK assert(xSemaphoreTake(_acorns_gil_lock,10000000))
+#define GIL_UNLOCK xSemaphoreGive(_acorns_gil_lock)
 
 
 //How many threads in the thread pool
