@@ -40,6 +40,250 @@ struct Request
 static void deref_prog(loadedProgram *);
 static struct loadedProgram* _programForId(const char * id);
 
+/***************************************************/
+//The GIL
+
+//The global interpreter lock. Almost any messing
+//with of interpreters uses this.
+static SemaphoreHandle_t gil_lock;
+
+//Wait 10 million ticks which is probably days, but still assert it if it fails
+#define GIL_LOCK assert(xSemaphoreTake(gil_lock,10000000))
+#define GIL_UNLOCK xSemaphoreGive(gil_lock)
+
+
+
+/*********************************************************************/
+//Random number generation
+
+static uint64_t entropy=88172645463325252LL;
+
+static unsigned long long xor64(){
+  //Every time we call this function, mix in some randomness. We could use the ESP prng,
+  //But that's less portable, and we want 64 bits, and I'm not sure what performance is like there.
+  //Instead we seed from that occasionally, and continually reseed from micros().
+  entropy += micros();
+  entropy^=(entropy<<13); entropy^=(entropy>>7); return (entropy^=(entropy<<17));
+}
+
+static SQInteger sqrandom(HSQUIRRELVM v)
+{
+  SQInteger i = sq_gettop(v);
+  SQInteger mn =0;
+  SQInteger mx=0;
+  if(i==2)
+  {
+    //Wrong and bad way to generate random numbers. There's a tiny bias if the range
+    //isn't a divisor of 2**64. But in practice, 2**64 is big and
+    //this isn't for security purposes anyway.
+    sq_getinteger(v, 2, &mx);
+    sq_pushinteger(v, xor64()%mx);
+    return 1;
+  }
+ if(i==3)
+  {
+    sq_getinteger(v, 2, &mn);
+    sq_getinteger(v, 3, &mx);
+    sq_pushinteger(v,(xor64()%mx) +mn);
+    return 1;
+  }
+
+  //Wrong number of params
+  return SQ_ERROR;
+}
+
+/*************************************************************************/
+//Misc Arduino
+static SQInteger sqmillis(HSQUIRRELVM v)
+{
+  sq_pushinteger(v, millis());
+  return(1);
+}
+
+//
+static SQInteger sqmicros(HSQUIRRELVM v)
+{
+  sq_pushinteger(v, micros());
+  return(1);
+}
+
+static SQInteger sqdelay(HSQUIRRELVM v)
+{
+ SQInteger i = sq_gettop(v);
+  SQInteger d =0;
+  if(i==2)
+  {
+    sq_getinteger(v, 2, &d);
+   
+    //Delay for the given number of milliseconds
+    GIL_UNLOCK;
+    delay(d);
+    GIL_LOCK;
+    return 0;
+  }
+  return SQ_ERROR;
+}
+
+static SQInteger sqdigitalread(HSQUIRRELVM v)
+{
+ SQInteger i = sq_gettop(v);
+  SQInteger d =0;
+  if(i==2)
+  {
+    sq_getinteger(v, 2, &d);
+   
+    //Delay for the given number of milliseconds
+    sq_pushinteger(v, digitalRead(d));
+    return 1;
+  }
+  return SQ_ERROR;
+}
+
+static SQInteger sqdigitalwrite(HSQUIRRELVM v)
+{
+ SQInteger i = sq_gettop(v);
+  SQInteger d =0;
+  SQInteger val=0;
+  if(i==3)
+  {
+    sq_getinteger(v, 2, &d);
+    sq_getinteger(v, 3, &val);
+    digitalWrite(d,val);
+    return 0;
+  }
+  return SQ_ERROR;
+}
+
+static SQInteger sqpinmode(HSQUIRRELVM v)
+{
+ SQInteger i = sq_gettop(v);
+  SQInteger d =0;
+  SQInteger val=0;
+  if(i==3)
+  {
+    sq_getinteger(v, 2, &d);
+    sq_getinteger(v, 3, &val);
+    pinMode(d,val);
+    return 0;
+  }
+  return SQ_ERROR;
+}
+
+/*************************************************************************************/
+//Module system
+
+//This is our modules table. It contains weak references to every module that is loaded.
+//This means a module can dissapear if all references to it go away!!!
+//Beware of bugs!
+static HSQOBJECT modulesTable;
+
+
+
+//One of the ways that imports are handled, by just letting the user deal with it.
+//This function must place the new imported module onto the stack.
+
+//Return 0 if you can't handle the request, 1 if you can, SQ_ERROR for an error
+//error.
+
+//This is weak, so the user can override it rather easily.
+SQRESULT  __attribute__((weak)) sq_userImportFunction(HSQUIRRELVM v, const char * c, char len) 
+{
+  return 0;
+}
+
+
+//Our builtin modules available for import.
+//TODO: move into it's own library
+SQRESULT sq_builtinImportFunction(HSQUIRRELVM v, const char * c, char len);
+
+
+SQRESULT sq_builtinImportFunction(HSQUIRRELVM v, const char * c, char len)
+{
+  return (0);
+}
+
+
+static SQInteger sqimport(HSQUIRRELVM v)
+{
+
+ SQInteger s = 0;
+ SQInteger i =sq_gettop(v);
+
+  
+  const SQChar * mname;
+  if(i==2)
+  {
+    if (sq_getstring(v, 2, &mname)==SQ_ERROR)
+    {
+      sq_throwerror(v, "Name must be a string");
+      return SQ_ERROR;
+    }
+
+    s=sq_getsize(v,2);
+    
+
+    sq_pushobject(v, modulesTable);
+    sq_pushstring(v, mname, s);
+    i = sq_gettop(v);
+    //We have found it in the table of things that are already loaded.
+    if (SQ_SUCCEEDED(sq_get(v,-2)))
+    {
+        return 1;
+    }
+
+
+    //This user import function is expected to put the module we are trying to
+    //import onto the stack.
+    if(sq_builtinImportFunction(v, mname, s)==1)
+    {
+
+      HSQOBJECT o;
+      sq_resetobject(&o);
+
+      //Set the object as a member of the module table.
+      //return the object itself
+      sq_getstackobj(v,-1, &o);
+      sq_pushobject(v,modulesTable);
+      sq_pushstring(v, mname, s);
+      sq_pushobject(v, o);
+      sq_newslot(v, -3,SQFalse);
+
+      sq_pushobject(v, o);
+      return 1;
+    }
+
+    //This user import function is expected to put the module we are trying to
+    //import onto the stack.
+    if(sq_userImportFunction(v, mname, s)==1)
+    {
+
+      HSQOBJECT o;
+      sq_resetobject(&o);
+
+      //Set the object as a member of the module table.
+      //return the object itself
+      sq_getstackobj(v,-1, &o);
+      sq_pushobject(v,modulesTable);
+      sq_pushstring(v, mname, s);
+      sq_pushobject(v, o);
+      sq_newslot(v, -3,SQFalse);
+
+      sq_pushobject(v, o);
+      return 1;
+    }
+
+  sq_throwerror(v, "No import handler found");
+  return SQ_ERROR;
+
+  }
+  else
+  {
+    sq_throwerror(v, "import takes exactly one parameter");
+    return SQ_ERROR;
+  }
+
+}
+
 
 
 
@@ -67,18 +311,6 @@ static void _setfree(struct loadedProgram * p)
   }
 }
 
-
-
-/***************************************************/
-//The GIL
-
-//The global interpreter lock. Almost any messing
-//with of interpreters uses this.
-static SemaphoreHandle_t gil_lock;
-
-//Wait 10 million ticks which is probably days, but still assert it if it fails
-#define GIL_LOCK assert(xSemaphoreTake(gil_lock,10000000))
-#define GIL_UNLOCK xSemaphoreGive(gil_lock)
 
 
 
@@ -365,6 +597,8 @@ static void runLoaded(loadedProgram * p, void * d)
 //Close a running program, waiting till all children are no longer busy.
 static int _closeProgram(const char * id)
 {
+  entropy += esp_random();
+  xor64();
   
   loadedProgram * old = _programForId(id);
   //Check if programs are the same
@@ -402,6 +636,12 @@ int _Acorns::closeProgram(const char * id)
 //You will be able to use getdelegate to get at the root table directly.
 static int _loadProgram(const char * code, const char * id)
 {
+
+  //Program load times as another entropy
+  //Source
+  entropy += esp_random();
+  xor64();
+  
   loadedProgram * old = _programForId(id);
   //Check if programs are the same
 
@@ -578,7 +818,7 @@ void _Acorns::replChar(char c)
   return;
 doing:
   replbuffer[replpointer] = _SC('\0');
-
+  GIL_LOCK;
   if (replbuffer[0] == _SC('=')) {
     sprintf(sq_getscratchpad(replvm, 1024), _SC("return (%s)"), &replbuffer[1]);
     memcpy(replbuffer, sq_getscratchpad(replvm, -1), (scstrlen(sq_getscratchpad(replvm, -1)) + 1)*sizeof(SQChar));
@@ -602,6 +842,7 @@ doing:
     }
 
     sq_settop(replvm, oldtop);
+  GIL_UNLOCK;
   }
 resetting:
   replpointer = 0;
@@ -657,7 +898,6 @@ static void addlibs(HSQUIRRELVM v)
   sq_pop(v, 1);
 }
 
-
 //Initialize squirrel task management
 void _Acorns::begin()
 {
@@ -666,14 +906,25 @@ void _Acorns::begin()
     loadedPrograms[i] == 0;
   }
   
+  entropy += esp_random();
+  xor64();
+  entropy += esp_random();
+  xor64();
 
   //Start the root interpreter
   const char * code =  "'The only line in this root program currently is this comment";
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
+
+  //Use the root interpeter to create the modules table
+  sq_newtableex(rootInterpreter->vm,8);
+  sq_resetobject(&modulesTable);
+  sq_getstackobj(rootInterpreter->vm,-1, &modulesTable);
+  sq_addref(rootInterpreter->vm, &modulesTable);
+  sq_pop(rootInterpreter->vm, 1);
+
   sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
-    Serial.println((int)rootInterpreter);
 
   memcpy(rootInterpreter->hash, code, 30);
   rootInterpreter->busy = 0;
@@ -681,6 +932,17 @@ void _Acorns::begin()
   gil_lock = xSemaphoreCreateBinary( );
   xSemaphoreGive(gil_lock);
   request_queue = xQueueCreate( 25, sizeof(struct Request));
+
+  //Add Arduino bindings
+  registerFunction(0, sqrandom, "random");
+  registerFunction(0, sqdelay,"delay");
+  registerFunction(0, sqmicros,"micros");
+  registerFunction(0, sqmillis, "millis");
+  registerFunction(0, sqdigitalread, "digitalRead");
+  registerFunction(0, sqdigitalwrite, "digitalWrite");
+  registerFunction(0, sqpinmode,"pinMode");
+  registerFunction(0, sqimport,"import");
+
 
   for (char i = 0; i < ACORNS_THREADS; i++)
   {
