@@ -947,6 +947,8 @@ void _Acorns::begin()
 
   sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
 
+
+
   memcpy(rootInterpreter->hash, code, 30);
   rootInterpreter->busy = 0;
 
