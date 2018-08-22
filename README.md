@@ -45,6 +45,20 @@ Right now the only strategy is the user's import hook.
 
 As the Arduino functions. HIGH, LOW, INPUT, INPUT_PULLUP, and OUTPUT are defined as global variables.
 
+### system.memfree()
+Returns the number of bytes of heap remaining. We deviate from the arduino API for the system namespace because they use platform
+specific naming, and because fewer namespaces mean less RAM use.
+
+### system.restart()
+Completely restart the ESP.
+
+
+### Serial.begin(baud,[config, rxpin, txpin])
+Configure the main serial port(Note that this is the port used for the REPL). config is ignored.
+
+### Serial.write(c)
+Write a byte as to the main serial port.
+
 ## API
 
  
@@ -83,6 +97,13 @@ When the callbackdata object loses either of the 2 references it begins with, th
 When it loses all refeferences, it's memory will be freed.
 
 Callbackdata has the folowing properties:
+
+### Acorns.writeToInput(char * id, char * data, int len)
+Write the data to the given program's input buffer. The program must exist. If len is -1, use strlen.
+
+### Acorns.runInputBuffer(char * id)
+Tell a given program to compile and run it's input buffer. This lets you issue commands in the context of a running program,
+and it's a handy way to load code via the network in small packets.
 
 #### vm
 The HSQUIRRELVM * to the VM that requested the callback. It may be set to NULL by squirrel

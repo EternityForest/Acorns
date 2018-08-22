@@ -23,14 +23,16 @@ class _Acorns
     int loadProgram(const char * code, const char * id);
     int closeProgram(const char * id);
     struct CallbackData *acceptCallback(HSQUIRRELVM vm, SQInteger idx,void (*cleanup)(struct loadedProgram *, void *));
-    void makeRequest(char *, void (*f)(loadedProgram *, void *), void * arg);
+    void makeRequest(const char *, void (*f)(loadedProgram *, void *), void * arg);
     
     SQInteger registerFunction(const char* id,SQFUNCTION f,const char *fname);
     SQInteger setIntVariable(const char *id,long long value,const char *fname);
 
-    void addArduino();
-
+    void addArduino(HSQUIRRELVM);
+    void runInputBuffer(const char * id);
+    void writeToInput(const char * id, const char * data, int len);
 };
+
 //The userdata struct for each loadedProgram interpreter
 struct loadedProgram
 {

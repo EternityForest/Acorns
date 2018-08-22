@@ -89,6 +89,37 @@ static SQInteger sqrandom(HSQUIRRELVM v)
 }
 
 
+/***********************************************************************/
+//Directory listing
+/*
+static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
+{
+  DIR ** d;
+  char * dirname =0;
+
+  if(sq_getstring(v, 2, &dirname) == SQ_FAILED)
+  {
+    sq_throwerror(v,"dir requires one string parameter.")
+    return SQ_ERROR;
+  }
+
+  sq_newuserdata(v, sizeof(DIR *));
+  sq_getuserdata(v, -1,d, 0);
+  *d = opendir(dirname);
+}
+
+
+static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
+{
+
+}
+static SQInteger dir_release_hook(SQUserPointer p,SQInteger size)
+{
+  closedir((dir*)(*p));
+  (dir*)(*p) = 0;
+}
+
+*/
 /************************************************************************/
 //Quotes system
 
@@ -107,7 +138,7 @@ static SQInteger sqrandom(HSQUIRRELVM v)
     "\"The Caravansarai was still miles ahead.\"",
     "\"His cloak was well-worn and had many small pockets\"",
     "\"Roads go ever ever on,\nOver rock and under tree,\nBy caves where never sun has shone,\nBy streams that never find the sea;\nOver snow by winter sown,\nAnd through the merry flowers of June,\nOver grass and over stone,\nAnd under mountains in the moon.\"\n-- J. R. R. Tolkien ",
-    
+    "\"The runes read 'I serve but the good,\n        of life and liberty'\"\n    -Leslie Fish, \"The Arizona Sword\"",
     0
 };
 
@@ -332,7 +363,7 @@ static void _makeRequest(loadedProgram * program, void (*f)(loadedProgram *, voi
   xQueueSend(request_queue, &r, portMAX_DELAY);
 }
 
-void _Acorns::makeRequest(char * id, void (*f)(loadedProgram *, void *), void * arg)
+void _Acorns::makeRequest(const char * id, void (*f)(loadedProgram *, void *), void * arg)
 {
   GIL_LOCK;
   loadedProgram * program = _programForId(id);
@@ -566,18 +597,81 @@ static void deref_prog(loadedProgram * p)
 }
 
 
+void _Acorns::writeToInput(const char * id, const char * data, int len)
+{
+  GIL_LOCK;
+  loadedProgram * p = _programForId(id);
+  if (p==0)
+  {
+    return;
+  }
+
+  if (len == -1)
+  {
+    len = strlen(data);
+  }
+
+  if(p->inputBuffer ==0)
+  {
+    p->inputBuffer = (char *)malloc(len+2);
+    p->inputBufferLen = 0;
+  }
+  else
+  {
+    //TODO: this is a memory leak if realloc ever fails
+    if((p->inputBuffer = (char *)realloc(p->inputBuffer, p->inputBufferLen+len))==0)
+    {
+      return;
+    }
+  }
+
+  memcpy(p->inputBuffer+(p->inputBufferLen), data, len);
+  p->inputBufferLen += len;
+
+  GIL_UNLOCK;
+}
+
+
+
+
+
 
 //Function that the thread pool runs to run whatever program is on the top of an interpreter's stack
 static void runLoaded(loadedProgram * p, void * d)
 {
-  Serial.println("runloaded");
-  Serial.println((int)p);
-
-  Serial.println((int)(p->vm));
-  SQInteger oldtop = sq_gettop(p->vm);
   sq_pushroottable(p->vm);
   sq_call(p->vm, 1, SQFalse, SQTrue);
-  sq_settop(p->vm, oldtop);
+  //Pop the closure itself.
+  sq_pop(p->vm, 1);
+}
+
+static void _runInputBuffer(loadedProgram * p, void *d)
+{
+
+    //Adding the null terminator
+    p->inputBuffer[p->inputBufferLen]=0;
+    if (SQ_SUCCEEDED(sq_compilebuffer(p->vm, p->inputBuffer, p->inputBufferLen+1, _SC("InputBuffer"), SQTrue)))
+      {
+        runLoaded(p, 0);
+        free(p->inputBuffer);
+        p->inputBuffer = 0;
+        p->inputBufferLen = 0;
+      }
+      else
+      {       
+        Serial.println("Failed to compile code");
+        return;
+      }
+
+    runLoaded(p, 0);
+    free(p->inputBuffer);
+    p->inputBuffer = 0;
+    p->inputBufferLen = 0;
+}
+
+void _Acorns::runInputBuffer(const char * id)
+{
+  makeRequest(id, _runInputBuffer,0);
 }
 
 
@@ -673,6 +767,9 @@ static int _loadProgram(const char * code, const char * id)
       loadedPrograms[i]->refcount = 1;
       loadedPrograms[i]-> callbackRecievers =0;
       loadedPrograms[i]->busy = 0;
+      loadedPrograms[i]->inputBuffer =0;
+      loadedPrograms[i]->inputBufferLen =0;
+
       //This is so the dereference function can free the slot in the table
       //By itself
       loadedPrograms[i]->slot = &loadedPrograms[i];
@@ -697,6 +794,9 @@ static int _loadProgram(const char * code, const char * id)
       sq_setdelegate(vm,-2);
       sq_setroottable(vm);
       
+      //Get rid of any garbage, and ensure there's at leas one thomg on the stack
+      sq_settop(vm, 1);
+
       if (SQ_SUCCEEDED(sq_compilebuffer(vm, code, strlen(code) + 1, _SC(id), SQTrue))) {
         loadedPrograms[i]->vm = vm;
         _makeRequest(loadedPrograms[i], runLoaded, 0);
@@ -889,6 +989,10 @@ SQObject sqSerialBaseClass;
 
 
 
+void resetLoadedProgram(loadedProgram * p)
+{
+
+}
 
 //Initialize squirrel task management
 void _Acorns::begin()
@@ -912,31 +1016,16 @@ void _Acorns::begin()
   xor64();
 
   //Start the root interpreter
-  const char * code =  "'The only line in this root program currently is this comment";
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
-
-
-  //Create the serial class
-  /*
-  sq_newclass(rootInterpreter->vm,SQFalse);
-  sq_resetobject(&sqSerialBaseClass)
-  sq_getstackobj(rootInterpreter->vm,-1, &sqSerialBaseClass);
-
-  sq_addref(rootInterpreter->vm, &sqSerialBaseClass);
-
-  sq_pushstring(rootInterpreter->vm, "begin", -1);
-  sq_newclosure(rootInterpreter->vm, sqserial_begin, 0)
-  sq_newslot(rootInterpreter->vm,-3, SQFalse);
-  */
 
 
   registerFunction(0, sqrandom, "random");
   registerFunction(0, sqimport,"import");
 
   //This is part of the class, it's in acorns_aduinobindings
-  addArduino();
+  addArduino(rootInterpreter->vm);
 
   //Use the root interpeter to create the modules table
   sq_newtableex(rootInterpreter->vm,8);
@@ -948,18 +1037,13 @@ void _Acorns::begin()
   sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
 
 
-  memcpy(rootInterpreter->hash, code, 30);
+  memcpy(rootInterpreter->hash, "//This is the first line of the code which will server as the ID", 30);
   rootInterpreter->busy = 0;
+  rootInterpreter->inputBuffer =0;
+  rootInterpreter->inputBufferLen =0;
 
   request_queue = xQueueCreate( 25, sizeof(struct Request));
 
-
-  //Make the system table
-  sq_pushroottable(rootInterpreter->vm);
-  sq
-  sq_newtableex(rootInterpreter->vm,8);
-  sq
-  sq_newclosure(v, me)
 
 
 
@@ -967,7 +1051,7 @@ void _Acorns::begin()
   {
     xTaskCreatePinnedToCore(InterpreterTask,
                             "SquirrelVM",
-                            6000,
+                            4096,
                             0,
                             1,
                             &sqTasks[i],
@@ -986,6 +1070,9 @@ void _Acorns::begin()
   replprogram-> callbackRecievers =0;
   replprogram-> parent = rootInterpreter;
   replprogram->vm = replvm;
+  replprogram->inputBuffer =0;
+  replprogram->inputBufferLen =0;
+
 
   //Clear the stack, just in case
   sq_settop(rootInterpreter->vm, 1);

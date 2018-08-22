@@ -1,7 +1,34 @@
 #include "acorns.h"
 #include "Arduino.h"
 
+
+
+
 /*
+
+NMEAGPS * gps;
+gps_fix * fix;
+
+void loop()
+{
+  while (gps.available( gps_port )) {
+    fix = gps.read();
+    doSomeWork( fix );
+  }
+}
+
+static SQInteger sqgps_construct(HSQUIRRELVM v)
+{
+  NMEAGPS * gps = new NMEAGPS;
+  sq_newclass(v, 0);
+
+  sq_pushstring(vm,"begin",-1);
+  sq_newclosure(vm,sqserial_begin,0); //create a new function
+  sq_newslot(vm,-3,SQFalse);
+}
+*/
+
+
 static SQInteger sqserial_begin(HSQUIRRELVM v)
 {
 
@@ -15,23 +42,69 @@ static SQInteger sqserial_begin(HSQUIRRELVM v)
 
   if(i>1)
   {
-    sq_getinteger(v,2, * baud);
+    sq_getinteger(v,2, &baud);
   }
 
 
   if(i>3)
   {
-    sq_getinteger(v,4, * rxpin);
+    sq_getinteger(v,4, &rxpin);
   } 
   if(i>4)
   {
-    sq_getinteger(v,5, * txpin);
+    sq_getinteger(v,5, &txpin);
   }
-  sq_getinstanceup(v, 1,&s,0);
+  sq_getinstanceup(v, 1,(void **)&s,0);
 
   //Just to be safe, use the config.
   s->begin(baud,SERIAL_8N2, rxpin, txpin);
-}*/
+  return 0;
+}
+
+static SQInteger sqserial_write(HSQUIRRELVM v)
+{
+
+  HardwareSerial * s = 0;
+ 
+  SQInteger b;
+  SQInteger i = sq_gettop(v);
+
+  if(i>1)
+  {
+    if(sq_getinteger(v,2, &b)==SQ_ERROR)
+    {
+      sq_throwerror(v, "Expected an integer between 0 and 255");
+      return SQ_ERROR;
+    }
+  }
+  else
+  {
+    sq_throwerror(v, "HardwareSerial.write takes exactly one parameter");
+    return SQ_ERROR;
+  }
+
+  sq_getinstanceup(v, 1,(void **)&s,0);
+
+  //Just to be safe, use the config.
+  s->write(b);
+  return 0;
+}
+
+
+
+
+static SQInteger sqfreeheap(HSQUIRRELVM v)
+{
+  sq_pushinteger(v, ESP.getFreeHeap());
+  return(1);
+}
+
+static SQInteger sqrestart(HSQUIRRELVM v)
+{
+  ESP.restart();
+  return(0);
+}
+
 
 static SQInteger sqmillis(HSQUIRRELVM v)
 {
@@ -124,8 +197,55 @@ static SQInteger sqpinmode(HSQUIRRELVM v)
   return SQ_ERROR;
 }
 
-void _Acorns::addArduino()
+
+HSQOBJECT FileObjectBase;
+
+void _Acorns::addArduino(HSQUIRRELVM vm)
 {
+
+  
+  SQInteger i = sq_gettop(vm);
+  sq_newclass(vm,0);
+
+
+
+  //Make the serial base class, add two functions
+  sq_newclass(vm, 0);
+  sq_pushstring(vm,"begin",-1);
+  sq_newclosure(vm,sqserial_begin,0); //create a new function
+  sq_newslot(vm,-3,SQFalse);
+
+  sq_pushstring(vm,"write",-1);
+  sq_newclosure(vm,sqserial_write,0); //create a new function
+  sq_newslot(vm,-3,SQFalse);
+
+
+  sq_pushroottable(vm);
+  sq_pushstring(vm,"Serial", -1);
+  sq_createinstance(vm , -3);
+  sq_setinstanceup(vm, -1, &Serial);
+  //add to root table under name serial, poopping name and value
+  sq_newslot(vm, -3, 0);
+
+  //Pop the root table and the base class
+  sq_pop(vm, 2);
+
+
+  //Now we make the "system" namespace which is just a table of static members
+  sq_pushroottable(vm);
+
+  sq_pushstring(vm,"system", -1);
+  sq_newtableex(vm, 3);
+  sq_pushstring(vm,"memfree",-1);
+  sq_newclosure(vm,sqfreeheap,0); //create a new function
+  sq_newslot(vm,-3,SQFalse);
+
+  sq_pushstring(vm,"restart",-1);
+  sq_newclosure(vm,sqrestart,0); //create a new function
+  sq_newslot(vm,-3,SQFalse);
+
+  sq_settop(vm, i);
+
   registerFunction(0, sqdelay,"delay");
   registerFunction(0, sqmicros,"micros");
   registerFunction(0, sqmillis, "millis");
