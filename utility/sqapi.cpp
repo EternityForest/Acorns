@@ -32,6 +32,12 @@ static bool sq_aux_gettypedarg(HSQUIRRELVM v,SQInteger idx,SQObjectType type,SQO
 }
 
 
+
+SQInteger sq_request_forceclose(HSQUIRRELVM v)
+{
+    v->stopRequestedFlag = true;
+}
+
 SQInteger sq_aux_invalidtype(HSQUIRRELVM v,SQObjectType type)
 {
     SQUnsignedInteger buf_size = 100 *sizeof(SQChar);

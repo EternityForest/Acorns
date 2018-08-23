@@ -18,6 +18,21 @@
 #define TARGET _stack._vals[_stackbase+arg0]
 #define STK(a) _stack._vals[_stackbase+(a)]
 
+
+//How often to yield to other threads in a multithreading environment
+#define SQ_SUSPEND_INTERVAL 250;
+
+//The suspend function is called every N instructions, a little under 1 millisecond.
+//That lets use do true multithreading. 
+static int sqsuspendcountdown = SQ_SUSPEND_INTERVAL;
+
+
+//User code must define a real suspend function if it's supposed to do anything.
+void  __attribute__((weak)) sq_threadyield()
+{
+} 
+
+
 bool SQVM::BW_OP(SQUnsignedInteger op,SQObjectPtr &trg,const SQObjectPtr &o1,const SQObjectPtr &o2)
 {
     SQInteger res;
@@ -672,6 +687,17 @@ bool SQVM::IsFalse(SQObjectPtr &o)
 extern SQInstructionDesc g_InstrDesc[];
 bool SQVM::Execute(SQObjectPtr &closure, SQInteger nargs, SQInteger stackbase,SQObjectPtr &outres, SQBool raiseerror,ExecutionType et)
 {
+    //We don't want to suspend right away just after entering a function,
+    //Because we want to try to finish short tuns without suspending
+    sqsuspendcountdown = SQ_SUSPEND_INTERVAL;
+
+    //We use non-handlable "exceptions" to implement stopping of a running VM.
+    bool allowHandleException = true;
+
+
+    //Reset the stop requested flag
+    stopRequestedFlag = false;
+
     if ((_nnativecalls + 1) > MAX_NATIVE_CALLS) { Raise_Error(_SC("Native stack overflow")); return false; }
     _nnativecalls++;
     AutoDec ad(&_nnativecalls);
@@ -708,6 +734,19 @@ exception_restore:
     {
         for(;;)
         {
+
+
+            sqsuspendcountdown --;
+            if(sqsuspendcountdown==0)
+            {   
+                sqsuspendcountdown = SQ_SUSPEND_INTERVAL;
+                sq_threadyield();
+                if(stopRequestedFlag)
+                {
+                    Raise_Error("Execution stopped via API call"); SQ_THROW(); continue;
+                }
+            }
+
             const SQInstruction &_i_ = *ci->_ip++;
             //dumpstack(_stackbase);
             //scprintf("\n[%d] %s %d %d %d %d\n",ci->_ip-_closure(ci->_closure)->_function->_instructions,g_InstrDesc[_i_.op].name,arg0,arg1,arg2,arg3);
@@ -1074,14 +1113,18 @@ exception_trap:
 
         while( ci ) {
             if(ci->_etraps > 0) {
-                SQExceptionTrap &et = _etraps.top();
-                ci->_ip = et._ip;
-                _top = et._stacksize;
-                _stackbase = et._stackbase;
-                _stack._vals[_stackbase + et._extarget] = currerror;
-                _etraps.pop_back(); traps--; ci->_etraps--;
-                while(last_top >= _top) _stack._vals[last_top--].Null();
-                goto exception_restore;
+                //We want to be able to raise non-handlable exceptions as a reliable way to stop a running process.
+                if(allowHandleException)
+                {
+                    SQExceptionTrap &et = _etraps.top();
+                    ci->_ip = et._ip;
+                    _top = et._stacksize;
+                    _stackbase = et._stackbase;
+                    _stack._vals[_stackbase + et._extarget] = currerror;
+                    _etraps.pop_back(); traps--; ci->_etraps--;
+                    while(last_top >= _top) _stack._vals[last_top--].Null();
+                    goto exception_restore;
+                }
             }
             else if (_debughook) {
                     //notify debugger of a "return"

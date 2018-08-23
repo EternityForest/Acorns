@@ -125,13 +125,19 @@ static SQInteger sqdelay(HSQUIRRELVM v)
   SQInteger d =0;
   if(i==2)
   {
-    sq_getinteger(v, 2, &d);
-   
+    if(sq_getinteger(v, 2, &d)==SQ_ERROR)
+   {
+      sq_throwerror(v,"Integer is required");
+      return SQ_ERROR;
+   }
+   else
+   {
     //Delay for the given number of milliseconds
     GIL_UNLOCK;
     delay(d);
     GIL_LOCK;
-    return 0;
+    return 0;   
+   }
   }
   return SQ_ERROR;
 }

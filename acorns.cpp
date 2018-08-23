@@ -48,6 +48,12 @@ static struct loadedProgram* _programForId(const char * id);
 SemaphoreHandle_t _acorns_gil_lock;
 
 
+//This gets called every 250 instructions in long running squirrel programs to other threads can do things.
+void sq_threadyield()
+{
+  GIL_UNLOCK;
+  GIL_LOCK;
+}
 
 /*********************************************************************/
 //Random number generation
@@ -393,7 +399,6 @@ static void InterpreterTask(void *)
     while (rq.program->busy)
     {
       GIL_UNLOCK;
-      Serial.println("Still busy");
       vTaskDelay(10);
       GIL_LOCK;
 
@@ -404,9 +409,7 @@ static void InterpreterTask(void *)
       }
     }
 
-    Serial.print("x");
     _setbusy(rq.program);
-    Serial.println("set");
     rq.f(rq.program, rq.arg);
     _setfree(rq.program);
 
@@ -705,12 +708,60 @@ static int _closeProgram(const char * id)
   }
 }
 
+
+//Get a running program to stop whatever it's doing, but don't actually
+//Remove it's process table entry.
+static void _forceclose(const char * id)
+{
+    loadedProgram * old = _programForId(id);
+    if(old==0)
+    {
+      return;
+    }
+    sq_request_forceclose(old->vm);
+}
+
 int _Acorns::closeProgram(const char * id)
 {
   GIL_LOCK;
   _closeProgram(id);
   GIL_UNLOCK;
 }
+
+int _Acorns::closeProgram(const char * id, char force)
+{
+  GIL_LOCK;
+  if(force)
+  {
+    _forceclose(id);
+  }
+  _closeProgram(id);
+  GIL_UNLOCK;
+}
+
+
+//Sq function to do an unclean stop of a running program.
+static SQInteger sqcloseProgram(HSQUIRRELVM v)
+{
+  const char * id;
+  char id2[32];
+  int len;
+  sq_getstring(v,2, &id);
+
+  if (sq_getsize(v,2)>31)
+  {
+    return SQ_ERROR;
+  }
+
+  memcpy(id2, id,sq_getsize(v, 2));
+  id2[sq_getsize(v,2)] = 0;
+
+  _forceclose(id2);
+  _closeProgram(id2);
+
+  return 0;
+}
+
 
 //Load a new program from source code with the given ID, replacing any with the same ID if the
 //first 30 bytes are different. The new program will have its own global scope that an inner scope of the root interpreter's.
@@ -1023,6 +1074,8 @@ void _Acorns::begin()
 
   registerFunction(0, sqrandom, "random");
   registerFunction(0, sqimport,"import");
+  registerFunction(0, sqcloseProgram,"forceClose");
+
 
   //This is part of the class, it's in acorns_aduinobindings
   addArduino(rootInterpreter->vm);
@@ -1041,6 +1094,7 @@ void _Acorns::begin()
   rootInterpreter->busy = 0;
   rootInterpreter->inputBuffer =0;
   rootInterpreter->inputBufferLen =0;
+  rootInterpreter->parent = 0;
 
   request_queue = xQueueCreate( 25, sizeof(struct Request));
 

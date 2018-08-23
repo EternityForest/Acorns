@@ -49,6 +49,8 @@ struct SQVM : public CHAINABLE_OBJ
 
 typedef sqvector<CallInfo> CallInfoVec;
 public:
+
+    bool stopRequestedFlag;
     void DebugHookProxy(SQInteger type, const SQChar * sourcename, SQInteger line, const SQChar * funcname);
     static void _DebugHookProxy(HSQUIRRELVM v, SQInteger type, const SQChar * sourcename, SQInteger line, const SQChar * funcname);
     enum ExecutionType { ET_CALL, ET_RESUME_GENERATOR, ET_RESUME_VM,ET_RESUME_THROW_VM };

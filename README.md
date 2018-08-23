@@ -59,6 +59,14 @@ Configure the main serial port(Note that this is the port used for the REPL). co
 ### Serial.write(c)
 Write a byte as to the main serial port.
 
+
+### forceClose(id)
+Given a program's ID, close a running program. Note that this will force close even a busy program. It cannot close a program until it exits any C functions it might be doing.
+I might change the name of this function.
+
+For the curious, this is possible through a patched version of the squirrel language that allows you to raise non-handlable exceptions.
+We also patch the VM to yield the GIL every 250 opcodes.
+
 ## API
 
  

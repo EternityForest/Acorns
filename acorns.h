@@ -22,6 +22,8 @@ class _Acorns
     void begin();
     int loadProgram(const char * code, const char * id);
     int closeProgram(const char * id);
+    int closeProgram(const char * id, char force);
+
     struct CallbackData *acceptCallback(HSQUIRRELVM vm, SQInteger idx,void (*cleanup)(struct loadedProgram *, void *));
     void makeRequest(const char *, void (*f)(loadedProgram *, void *), void * arg);
     
