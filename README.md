@@ -22,13 +22,14 @@ the old program is stopped(after it is no longer busy), and the new one is loade
 
 ## Configuration File
 
-Acorns can be configured via a file "/spiffs/config.ini". If present, all key/value pairs in the "Acorns" section will be placed
+Acorns can be configured via a file "/spiffs/config.ini". If present, all key/value pairs in the file  will be placed
 in the "config" dict, which is globally available. This table is just a table, setting keys doesn't make the change persist,
 but you can do that with setConfig("key", "value").
 
 Rembember that at the moment, numbers are converted to strings, but that behavior may change, so explicitly convert numbers to what
-you want them to be. Values used by the system as opposed to user code will always begin with "sys.", and it is suggested that you use a meaningful
-prefix for your values.
+you want them to be. 
+
+The first component in the dot-separated hierarchy is the section name, if the key is in a section.
 
 
 In the future, to save RAM, I might not import the config entries that are used by the system.
@@ -47,7 +48,7 @@ If present, this domain name will be advertised using mDNS. You don't need to in
 
 
 
-## Squirrel Language Functions
+## Arduino Bindings
 I've tried to stay close to Arduino where possible. From within Squirrel(In addition to standard squirrel stuff), you have access to:
 
 ### random(max), random(min, max)
@@ -63,23 +64,9 @@ As Arduino's millis()/micros(). Returns time since boot.
 ### delay(d)
 As Arduino's delay. Releases the GIL, so other threads can run while you wait.
 
-### import(str)
-
-Takes the name of something to import, and tries a variety of strategies to locate the object. Should that object have been previously imported,
-This will return that, however the system *may* unload an imported object at any time if there are no references.
-
-Right now the only strategy is the user's import hook.
-
 ### pinMode/digitalWrite/digitalRead/analogRead
 
 As the Arduino functions. HIGH, LOW, INPUT, INPUT_PULLUP, and OUTPUT are defined as global variables.
-
-### system.memfree()
-Returns the number of bytes of heap remaining. We deviate from the arduino API for the system namespace because they use platform
-specific naming, and because fewer namespaces mean less RAM use.
-
-### system.restart()
-Completely restart the ESP.
 
 
 ### Serial.begin(baud,[config, rxpin, txpin])
@@ -87,6 +74,26 @@ Configure the main serial port(Note that this is the port used for the REPL). co
 
 ### Serial.write(c)
 Write a byte as to the main serial port.
+
+
+## Squirrel Functions
+
+These functions have been added to Squirrel
+
+### import(str)
+
+Takes the name of something to import, and tries a variety of strategies to locate the object. Should that object have been previously imported,
+This will return that, however the system *may* unload an imported object at any time if there are no references.
+
+Right now the only strategy is the user's import hook.
+
+
+### system.memfree()
+Returns the number of bytes of heap remaining. We deviate from the arduino API for the system namespace because they use platform
+specific naming, and because fewer namespaces mean less RAM use.
+
+### system.restart()
+Completely restart the ESP.
 
 
 ### forceClose(id)
@@ -102,6 +109,14 @@ In addition to Squirrel's standard functions for read/writing to blobs and files
 
 ### stream.reads(size)
 In addition to Squirrel's standard functions for read/writing to blobs and files, reads(size) alows reading up to size bytes as a str.
+
+
+### setConfig(key, val)
+
+Sets a key in the config.ini file, creating it if it does not exist. Val gets converted to a string.
+
+Keys are a dot-separated hierarchy. If there is more than one component,  the first part is the section name, and the rest is the actual key.
+
 
 ## API
 
