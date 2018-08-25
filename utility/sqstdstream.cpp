@@ -34,6 +34,26 @@ SQInteger _stream_readblob(HSQUIRRELVM v)
     return 1;
 }
 
+
+
+SQInteger _stream_reads(HSQUIRRELVM v)
+{
+    SETUP_STREAM(v);
+    const char * data;
+    SQInteger size,res;
+    sq_getinteger(v,2,&size);
+    if(size > self->Len()) {
+        size = self->Len();
+    }
+    data = sq_getscratchpad(v,size);
+    res = self->Read((void *)data,size);
+    if(res <= 0)
+        return sq_throwerror(v,_SC("no data left to read"));
+    sq_pushstring(v, data, res);
+    return 1;
+}
+
+
 #define SAFE_READN(ptr,len) { \
     if(self->Read(ptr,len) != len) return sq_throwerror(v,_SC("io error")); \
     }
@@ -110,6 +130,22 @@ SQInteger _stream_writeblob(HSQUIRRELVM v)
     sq_pushinteger(v,size);
     return 1;
 }
+
+
+SQInteger _stream_writes(HSQUIRRELVM v)
+{
+    const char * data;
+    SQInteger size;
+    SETUP_STREAM(v);
+    if(SQ_FAILED(sq_getstring(v,2,&data)))
+        return sq_throwerror(v,_SC("invalid parameter"));
+    size = sq_getsize(v,2);
+    if(self->Write((void *)data,size) != size)
+        return sq_throwerror(v,_SC("io error"));
+    sq_pushinteger(v,size);
+    return 1;
+}
+
 
 SQInteger _stream_writen(HSQUIRRELVM v)
 {
@@ -240,8 +276,11 @@ SQInteger _stream_eos(HSQUIRRELVM v)
 
 static const SQRegFunction _stream_methods[] = {
     _DECL_STREAM_FUNC(readblob,2,_SC("xn")),
+    _DECL_STREAM_FUNC(reads,2,_SC("xn")),
     _DECL_STREAM_FUNC(readn,2,_SC("xn")),
     _DECL_STREAM_FUNC(writeblob,-2,_SC("xx")),
+    _DECL_STREAM_FUNC(writes,-2,_SC("xs")),
+
     _DECL_STREAM_FUNC(writen,3,_SC("xnn")),
     _DECL_STREAM_FUNC(seek,-2,_SC("xnn")),
     _DECL_STREAM_FUNC(tell,1,_SC("x")),

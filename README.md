@@ -1,4 +1,4 @@
-#Acorns: Squirrel for the ESP32
+# Acorns: Squirrel for the ESP32
 
 
 This is a port of Squirrel to the ESP32. It gives you a REPL in the Arduino serial terminal, and the underlying library aims to provide
@@ -6,6 +6,7 @@ an easy API for loading and unloading programs and having multiple running at on
 
 Try it out with the REPL example sketch, and be warned there's probably bugs and the API isn't stable yet.
 
+This projet is under the MIT license, except the PCG random number generator which is Apache.(See http://www.pcg-random.org/)
 
 ## Process Model
 
@@ -19,6 +20,32 @@ If you try to load new code into a program that already exists, if the hashes ar
 the old program is stopped(after it is no longer busy), and the new one is loaded.
 
 
+## Configuration File
+
+Acorns can be configured via a file "/spiffs/config.ini". If present, all key/value pairs in the "Acorns" section will be placed
+in the "config" dict, which is globally available. This table is just a table, setting keys doesn't make the change persist,
+but you can do that with setConfig("key", "value").
+
+Rembember that at the moment, numbers are converted to strings, but that behavior may change, so explicitly convert numbers to what
+you want them to be. Values used by the system as opposed to user code will always begin with "sys.", and it is suggested that you use a meaningful
+prefix for your values.
+
+
+In the future, to save RAM, I might not import the config entries that are used by the system.
+
+
+### Config Entries
+These config entries control the behavior of Acorns itself.
+
+#### wifi.ssid
+#### wifi.psk
+#### wifi.mode
+This can be "ap" or "sta"(the default)
+### wifi.hostname
+If present, this domain name will be advertised using mDNS. You don't need to include the .local at the end.
+
+
+
 
 ## Squirrel Language Functions
 I've tried to stay close to Arduino where possible. From within Squirrel(In addition to standard squirrel stuff), you have access to:
@@ -26,7 +53,9 @@ I've tried to stay close to Arduino where possible. From within Squirrel(In addi
 ### random(max), random(min, max)
 Get an integer in the given range. Might have a tiny bit of bias, so don't use it for security.
 Unlike Arduino, there's no repeatability to this sequence, and the system mixes in a bit of entropy at each call
-to keep it unpredictable enough for games and such.
+to keep it unpredictable enough for games, simulations, etc.
+
+Uses the PCG algorithm, and the micros() value.
 
 ### millis()/micros()
 As Arduino's millis()/micros(). Returns time since boot.
@@ -67,6 +96,13 @@ I might change the name of this function.
 For the curious, this is possible through a patched version of the squirrel language that allows you to raise non-handlable exceptions.
 We also patch the VM to yield the GIL every 250 opcodes.
 
+
+### stream.writes(str)
+In addition to Squirrel's standard functions for read/writing to blobs and files, writes(str) allows directly writing a string.
+
+### stream.reads(size)
+In addition to Squirrel's standard functions for read/writing to blobs and files, reads(size) alows reading up to size bytes as a str.
+
 ## API
 
  
@@ -106,13 +142,6 @@ When it loses all refeferences, it's memory will be freed.
 
 Callbackdata has the folowing properties:
 
-### Acorns.writeToInput(char * id, char * data, int len)
-Write the data to the given program's input buffer. The program must exist. If len is -1, use strlen.
-
-### Acorns.runInputBuffer(char * id)
-Tell a given program to compile and run it's input buffer. This lets you issue commands in the context of a running program,
-and it's a handy way to load code via the network in small packets.
-
 #### vm
 The HSQUIRRELVM * to the VM that requested the callback. It may be set to NULL by squirrel
 at any point outside the GIL.
@@ -120,6 +149,18 @@ at any point outside the GIL.
 #### callable
 The HSQUIRRELOBJ that is to be called. Push it onto the stack within a makeRequest function to call it. It may be set to NULL by squirrel
 at any point outside the GIL.
+
+
+### Acorns.writeToInput(char * id, char * data, int len)
+Write the data to the given program's input buffer. The program must exist. If len is -1, use strlen.
+
+### Acorns.runInputBuffer(char * id)
+Tell a given program to compile and run it's input buffer. This lets you issue commands in the context of a running program,
+and it's a handy way to load code via the network in small packets.
+
+### Acorns.clearInputBuffer(char * id)
+Clears the input buffer of a loaded program.
+
 
 ### SQRESULT sq_userImportFunction(HSQUIRRELVM v, const char * c, char len) __attribute__((weak))
 

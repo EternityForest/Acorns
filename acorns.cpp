@@ -1,8 +1,33 @@
+/*Copyright (c) 2018 Daniel Dunn(except noted parts)
 
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.*/
 
 
 #include "Arduino.h"
 #include "acorns.h"
+#include <WiFi.h>
+#include <dirent.h>
+#include "minIni.h"
+#include <ESPmDNS.h>
+
+
+
 
 
 
@@ -10,12 +35,6 @@
 
 /************************************************************************************************************/
 //Data Structures, forward declarations
-
-/*
-quotes = {
-"\"The runes read I serve but the good, of life and lib
-
-}*/
 
   
   
@@ -59,14 +78,37 @@ void sq_threadyield()
 //Random number generation
 
 static uint64_t entropy=88172645463325252LL;
+static uint64_t rng_key = 787987897897LL;
 
-static unsigned long long xor64(){
+
+/*
+static unsigned long long doRandom(){
   //Every time we call this function, mix in some randomness. We could use the ESP prng,
   //But that's less portable, and we want 64 bits, and I'm not sure what performance is like there.
   //Instead we seed from that occasionally, and continually reseed from micros().
   entropy += micros();
   entropy^=(entropy<<13); entropy^=(entropy>>7); return (entropy^=(entropy<<17));
 }
+*/
+
+//This function was modified for Acorns.
+// *Really* minimal PCG32 code / (c) 2014 M.E. O'Neill / pcg-random.org
+// Licensed under Apache License 2.0 (NO WARRANTY, etc. see website)
+static uint32_t doRandom()
+{
+    //This is the modified line, for continual reseeding.
+    entropy+=micros();
+
+    uint64_t oldstate = entropy;
+    // Advance internal state
+    entropy = oldstate * 6364136223846793005ULL + (rng_key|1);
+    // Calculate output function (XSH RR), uses old state for max ILP
+    uint32_t xorshifted = ((oldstate >> 18u) ^ oldstate) >> 27u;
+    uint32_t rot = oldstate >> 59u;
+    return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
+}
+
+
 
 static SQInteger sqrandom(HSQUIRRELVM v)
 {
@@ -79,14 +121,14 @@ static SQInteger sqrandom(HSQUIRRELVM v)
     //isn't a divisor of 2**64. But in practice, 2**64 is big and
     //this isn't for security purposes anyway.
     sq_getinteger(v, 2, &mx);
-    sq_pushinteger(v, xor64()%mx);
+    sq_pushinteger(v, doRandom()%mx);
     return 1;
   }
  if(i==3)
   {
     sq_getinteger(v, 2, &mn);
     sq_getinteger(v, 3, &mx);
-    sq_pushinteger(v,(xor64()%mx) +mn);
+    sq_pushinteger(v,(doRandom()%mx) +mn);
     return 1;
   }
 
@@ -97,35 +139,85 @@ static SQInteger sqrandom(HSQUIRRELVM v)
 
 /***********************************************************************/
 //Directory listing
-/*
+
+static HSQOBJECT DirEntryObj;
+
+
+
 static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
 {
-  DIR ** d;
-  char * dirname =0;
 
-  if(sq_getstring(v, 2, &dirname) == SQ_FAILED)
+  //Points to the userdata, but that userdata is actually a dir pointer
+  DIR ** d;
+  const char * dirname =0;
+
+  if(sq_getstring(v, 2, &dirname) == SQ_ERROR)
   {
-    sq_throwerror(v,"dir requires one string parameter.")
+    sq_throwerror(v,"dir requires one string parameter.");
     return SQ_ERROR;
   }
 
+  //The packed data has the dir name in it after the dir pointer
   sq_newuserdata(v, sizeof(DIR *));
-  sq_getuserdata(v, -1,d, 0);
+  sq_getuserdata(v, -1,(void**)&d, 0);
+  sq_pushobject(v,DirEntryObj);
+  sq_setdelegate(v,-2);
+
   *d = opendir(dirname);
+
+  if(*d==0)
+  {
+        return sq_throwerror(v,"Could not open directory");
+  }
+  return 1;
 }
 
+
+//Get is a passthrough
+static SQInteger sqdirectoryiterator_get(HSQUIRRELVM v)
+{
+   return 1;
+}
 
 static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
 {
+  DIR ** d;
+  struct dirent * de;
 
+  if(sq_getuserdata(v, 1,(void**)&d, 0)==SQ_ERROR)
+  {
+    return SQ_ERROR;
+  }
+
+  if(*d==0)
+  {
+    return sq_throwerror(v, "This directory object is invalid or has been closed");
+  }
+  de=readdir(*d);
+
+  if(de)
+  {
+    sq_pushstring(v,de->d_name, -1);
+  }
+  else
+  {
+    sq_pushnull(v);
+    closedir(*d);
+  }
+  return 1;
 }
+
 static SQInteger dir_release_hook(SQUserPointer p,SQInteger size)
 {
-  closedir((dir*)(*p));
-  (dir*)(*p) = 0;
+  if(*((DIR**)p)==0)
+  {
+    return 0;
+  }
+  closedir(*((DIR**)(p)));
+  *((DIR**)(p)) = 0;
 }
 
-*/
+
 /************************************************************************/
 //Quotes system
 
@@ -162,7 +254,7 @@ static int numQuotes()
 
 static const char * acorn_getQuote()
 {
-    return acorn_Quoteslist[(xor64()%numQuotes())];
+    return acorn_Quoteslist[(doRandom()%numQuotes())];
 }
 
 /*************************************************************************/
@@ -600,6 +692,24 @@ static void deref_prog(loadedProgram * p)
 }
 
 
+void _Acorns::clearInput(const char * id)
+{
+ GIL_LOCK;
+  loadedProgram * p = _programForId(id);
+  if (p==0)
+  {
+    return;
+  }
+  if(p->inputBuffer)
+  {
+    free(p->inputBuffer);
+    p->inputBuffer = 0;
+    p->inputBufferLen = 0;
+  }
+
+  GIL_UNLOCK;
+}
+
 void _Acorns::writeToInput(const char * id, const char * data, int len)
 {
   GIL_LOCK;
@@ -682,7 +792,8 @@ void _Acorns::runInputBuffer(const char * id)
 static int _closeProgram(const char * id)
 {
   entropy += esp_random();
-  xor64();
+  rng_key += esp_random();
+  doRandom();
   
   loadedProgram * old = _programForId(id);
   //Check if programs are the same
@@ -698,6 +809,10 @@ static int _closeProgram(const char * id)
       GIL_LOCK;
     }
 
+    if(old->inputBuffer)
+    {
+      free(old->inputBuffer);
+    }
     //Close the VM and deref the task handle now that the VM is no longer busy.
     //The way we close the VM is to get rid of references to its thread object.
     sq_release(old->vm, &old->threadObj);
@@ -772,7 +887,8 @@ static int _loadProgram(const char * code, const char * id)
   //Program load times as another entropy
   //Source
   entropy += esp_random();
-  xor64();
+  rng_key += esp_random();
+  doRandom();
   
   loadedProgram * old = _programForId(id);
   //Check if programs are the same
@@ -826,10 +942,10 @@ static int _loadProgram(const char * code, const char * id)
       loadedPrograms[i]->slot = &loadedPrograms[i];
 
       HSQUIRRELVM vm;
-      vm = sq_newthread(rootInterpreter->vm, 1024);
+      loadedPrograms[i]->vm = sq_newthread(rootInterpreter->vm, 1024);
+      vm = loadedPrograms[i]->vm;
       sq_setforeignptr(vm, &loadedPrograms[i]);
       sq_resetobject(&loadedPrograms[i]->threadObj);
-      loadedPrograms[i]->vm = vm;
 
       //Get the thread handle, ref it so it doesn't go away, then store it in the loadedProgram
       //and pop it. Now the thread is independant
@@ -992,6 +1108,212 @@ resetting:
 }
 
 
+//***********************************************************************************************************/
+//INI file config handling
+const char cfg_inifile[] = "/spiffs/config.ini";
+
+HSQOBJECT ConfigTable;
+
+static int iniCallback(const char *section, const char *key, const char *value, void *userdata)
+{
+  (void)userdata; /* this parameter is not used in this example */
+  
+
+  char buf[256];
+
+  char slen = strlen(section);
+  
+  //Join section and key with a dot, if section exists.
+  if(slen)
+  {
+    strcpy(buf,section);
+    buf[slen]='.';
+    strcpy(buf+slen+1, key);
+  }
+  else
+  {
+    strcpy(buf, key);
+  }
+  sq_pushobject(rootInterpreter->vm, ConfigTable);
+  sq_pushstring(rootInterpreter->vm, buf, -1);
+  sq_pushstring(rootInterpreter->vm, value, -1);
+  sq_newslot(rootInterpreter->vm, -3, SQFalse);
+  sq_pop(rootInterpreter->vm,1);
+  return 1;
+}
+
+void loadConfig()
+{
+  sq_resetobject(&ConfigTable);
+  sq_pushroottable(rootInterpreter->vm);
+  sq_pushstring(rootInterpreter->vm,"config",-1);
+  sq_newtableex(rootInterpreter->vm, 2);
+  sq_getstackobj(rootInterpreter->vm, -1, &ConfigTable);
+  sq_addref(rootInterpreter->vm,&ConfigTable);
+  sq_newslot(rootInterpreter->vm,-3, SQFalse);
+  sq_pop(rootInterpreter->vm,1);
+
+
+  //Ensure the existance of the file.
+  FILE * f = fopen(cfg_inifile,"r");
+  if(f)
+  {
+    fclose(f);
+  }
+  else
+  {
+    return;
+  }
+
+  ini_browse(iniCallback, 0, cfg_inifile);
+}
+
+static SQInteger sqwriteconfig(HSQUIRRELVM v)
+{
+  const char * key;
+  const char * val;
+
+  char section[49];
+
+  if(sq_getstring(v,2,&key)==SQ_ERROR)
+  {
+    return sq_throwerror(v,"Key must be str");
+  }
+  if(sq_getstring(v,3,&val)==SQ_ERROR)
+  {
+    if(sq_tostring(v,3)==SQ_ERROR)
+    {
+      return sq_throwerror(v,"Requires 2 args");
+    }
+    sq_getstring(v,3,&val);
+  }
+
+  char * x=strchr(key,'.');
+  if(x)
+  {
+    if(x-key> 47)
+    {
+      return sq_throwerror(v,"Section is too long(max 48 bytes)");
+    }
+    memcpy(section, key, (x-key)+1);
+    section[x-key] =0;
+    key = x+1;
+    ini_puts(section, key,val,cfg_inifile);
+    return 0;
+  }
+
+  ini_puts("", key,val,cfg_inifile);
+}
+
+/***************************************************************************************/
+//WiFi
+//Connect to wifi based on config file
+
+//wifi event handler
+
+//AsyncWebServer server(80);
+
+/*
+static void findLocalNtp()
+{
+
+    mdns_result_t * results = NULL;
+    esp_err_t err = mdns_query_ptr(service_name, proto, 3000, 20,  &results);
+    if(err){
+        return;
+    }
+    if(!results){
+        return;
+    }
+
+    mdns_result_t * best=results; 
+    
+    while(results)
+    {
+      //Find the lowest ASCIIBetical instance name
+      if(strcmp(results->instance_name, best->instance_name))
+      {
+        best= results;
+      }
+    }
+
+    WiFiUDP ntpUDP;
+    NTPClient timeClient(ntpUDP);
+    ntpUDP.begin();
+
+    NTPClient.forceUpdate();
+
+    
+}
+*/
+static void WiFiEvent(WiFiEvent_t event){
+
+    switch(event) {
+      case SYSTEM_EVENT_STA_GOT_IP:
+
+          
+          break;
+      case SYSTEM_EVENT_STA_DISCONNECTED:
+          Serial.println("WiFi lost connection");
+          break;
+    }
+}
+
+//Configure wifi according to the config file
+static void wifiConnect()
+{ 
+  char ssid[65];
+  char psk[65];
+  char wifimode[8];
+  char hostname[32];
+  char webserveren[4];
+
+
+  //Ensure the existance of the file.
+  FILE * f = fopen(cfg_inifile,"r");
+  if(f)
+  {
+    fclose(f);
+  }
+  else
+  {
+    return;
+  }
+
+  ini_gets("wifi","ssid","",ssid, 64, cfg_inifile);
+  ini_gets("wifi","psk","",psk, 64, cfg_inifile);
+  ini_gets("wifi","mode","sta",wifimode, 8, cfg_inifile);
+  ini_gets("wifi","webserver","no",webserveren, 4, cfg_inifile);
+
+
+  WiFi.onEvent(WiFiEvent);
+  
+  if(strcmp(wifimode,"sta")==0)
+  {
+    if(strlen(ssid))
+    {
+      WiFi.begin(ssid, psk);
+      Serial.print("Configured to connect to: ");
+      Serial.println(ssid);
+    }
+  }
+  if(strcmp(wifimode,"ap")==0)
+  {
+    WiFi.softAP(ssid, psk);
+    Serial.print("Serving as access point with SSID: ");
+    Serial.println(ssid);
+   
+  }
+   
+    //Lets us advertise a hotspot.
+    ini_gets("wifi","hostname","sta",hostname, 32, cfg_inifile);
+    if(strlen(hostname))
+    {
+      MDNS.begin(hostname);
+    }
+
+}
+
 //**************************************************************************************/
 //General system control
 
@@ -1045,6 +1367,9 @@ void resetLoadedProgram(loadedProgram * p)
 
 }
 
+
+static HSQOBJECT ReplThreadObj;
+
 //Initialize squirrel task management
 void _Acorns::begin()
 {
@@ -1061,10 +1386,20 @@ void _Acorns::begin()
   _acorns_gil_lock = xSemaphoreCreateBinary( );
   xSemaphoreGive(_acorns_gil_lock);
 
+
+  wifiConnect();  
+
+  //This will probably seed the RNG far better than anyone should even think of needing
+  //For non-crypto stuff.
+  rng_key += esp_random();
+  rng_key += esp_random()<<32;
+  
+  entropy += esp_random()<<32;
+
   entropy += esp_random();
-  xor64();
+  doRandom();
   entropy += esp_random();
-  xor64();
+  doRandom();
 
   //Start the root interpreter
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
@@ -1072,10 +1407,17 @@ void _Acorns::begin()
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
 
 
+
+  //Setup the config system
+  loadConfig();
+  registerFunction(0, sqwriteconfig, "setConfig");
+
   registerFunction(0, sqrandom, "random");
   registerFunction(0, sqimport,"import");
   registerFunction(0, sqcloseProgram,"forceClose");
 
+  addlibs(rootInterpreter->vm);
+  Serial.println("Added core libraries");
 
   //This is part of the class, it's in acorns_aduinobindings
   addArduino(rootInterpreter->vm);
@@ -1089,6 +1431,29 @@ void _Acorns::begin()
 
   sq_setforeignptr(rootInterpreter->vm, rootInterpreter);
 
+
+
+
+
+
+  //Create the directory iteration code
+  sq_newtableex(rootInterpreter->vm, 2);
+  sq_pushstring(rootInterpreter->vm,"_nexti",-1);
+  sq_newclosure(rootInterpreter->vm,sqdirectoryiterator_next,0); //create a new function
+  sq_newslot(rootInterpreter->vm,-3,SQFalse);
+
+  //The get function that's actually just a passthrough
+  sq_pushstring(rootInterpreter->vm,"_get",-1);
+  sq_newclosure(rootInterpreter->vm,sqdirectoryiterator_get,0); //create a new function
+  sq_newslot(rootInterpreter->vm,-3,SQFalse);
+
+  sq_resetobject(&DirEntryObj);
+  sq_getstackobj(rootInterpreter->vm, -1, &DirEntryObj);
+  sq_addref(rootInterpreter->vm,&DirEntryObj);
+  sq_pop(rootInterpreter->vm,1);
+
+  //create the dir function.
+  registerFunction(0,sqdirectoryiterator,"dir");
 
   memcpy(rootInterpreter->hash, "//This is the first line of the code which will server as the ID", 30);
   rootInterpreter->busy = 0;
@@ -1114,8 +1479,6 @@ void _Acorns::begin()
   }
 
   Serial.println("Initialized root interpreter.");
-  addlibs(rootInterpreter->vm);
-  Serial.println("Added core libraries");
 
   replvm = sq_newthread(rootInterpreter->vm, 1024);
   replprogram = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
@@ -1127,8 +1490,12 @@ void _Acorns::begin()
   replprogram->inputBuffer =0;
   replprogram->inputBufferLen =0;
 
+  sq_resetobject(&ReplThreadObj);
+  sq_getstackobj(rootInterpreter->vm, -1, &ReplThreadObj);
+  sq_addref(rootInterpreter->vm, &ReplThreadObj);
 
-  //Clear the stack, just in case
+  //Clear the stack, just in case. It's important the ome thing we leave
+  //Be the repl VM.
   sq_settop(rootInterpreter->vm, 1);
 
   Serial.print("Free Heap: ");
