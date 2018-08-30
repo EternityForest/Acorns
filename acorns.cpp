@@ -1349,9 +1349,12 @@ static SQInteger sqgetconfigfromini(HSQUIRRELVM v)
     key = x+1;
     ini_gets(section, key, "", buf, 256, cfg_inifile);
   }
+  else
+  {
   ini_gets("",key, "", buf, 256, cfg_inifile);
-
+  }
   sq_pushstring(v,buf, -1);
+  return 1;
 }
 
 void loadConfig()
@@ -1367,7 +1370,7 @@ void loadConfig()
   sq_pushstring(rootInterpreter->vm,"_get",-1);
   sq_newclosure(rootInterpreter->vm,sqgetconfigfromini,0); //create a new function
   sq_newslot(rootInterpreter->vm,-3,SQFalse);
-
+  sq_setdelegate(rootInterpreter->vm, -2);
 
 
 
