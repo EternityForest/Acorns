@@ -4,9 +4,14 @@
 This is a port of Squirrel to the ESP32. It gives you a REPL in the Arduino serial terminal, and the underlying library aims to provide
 an easy API for loading and unloading programs and having multiple running at once.
 
+In addition to that, acorns aims to provide a runtime layer that gives you the kind of configurability you might
+expect from a Linux box.
+
 Try it out with the REPL example sketch, and be warned there's probably bugs and the API isn't stable yet.
 
-This projet is under the MIT license, except the PCG random number generator which is Apache.(See http://www.pcg-random.org/)
+
+## License
+This project is under the MIT license, except the PCG random number generator and minIni which are both Apache.(See http://www.pcg-random.org/ and https://github.com/compuphase/minIni)
 
 ## Process Model
 
@@ -14,11 +19,19 @@ Acorns processes are independant VMs that immediately run whatever code you load
 their own scope which has the root interpreter's scope as a delegate, so you can access true global functions.
 
 They have a process ID which is up to 16 bytes long, and is a null terminated string. They also have a "hash"
-value, which is just the first 30 bytes of code.
+value, which is just the first 24 bytes of code.
 
 If you try to load new code into a program that already exists, if the hashes are the same nothing happens. If they are not,
 the old program is stopped(after it is no longer busy), and the new one is loaded.
 
+If you actually want the hashes to do anything, you have to make sure that the first 24 bytes 
+
+
+Acorns itself in some ways tries to act more like a pseudo-OS, and can manage things like WiFi based on the config file.
+
+## Storing programs in SPIFFS
+
+If there's a directory /spiffs/sqprogs, all files inside are assumed to be squirrel programs and loaded at boot, with the program ID being the basename of the file.
 
 ## Configuration File
 
@@ -31,12 +44,19 @@ you want them to be.
 
 The first component in the dot-separated hierarchy is the section name, if the key is in a section.
 
-
 In the future, to save RAM, I might not import the config entries that are used by the system.
+
+acorns.h declares all minIni API functions, so you can directly access the INI file from C++ code, but you should use Acorns.getConfig instead,
+as the getConfig function lets squirrel code temporarily alter config without touching SPIFFS.
+
 
 
 ### Config Entries
-These config entries control the behavior of Acorns itself.
+These config entries control the behavior of Acorns itself. 
+
+### WiFi
+Wifi will be configured at boot if ssid is configured.
+
 
 #### wifi.ssid
 #### wifi.psk
@@ -88,11 +108,11 @@ This will return that, however the system *may* unload an imported object at any
 Right now the only strategy is the user's import hook.
 
 
-### system.memfree()
+### memfree()
 Returns the number of bytes of heap remaining. We deviate from the arduino API for the system namespace because they use platform
 specific naming, and because fewer namespaces mean less RAM use.
 
-### system.restart()
+### restart()
 Completely restart the ESP.
 
 
@@ -104,18 +124,33 @@ For the curious, this is possible through a patched version of the squirrel lang
 We also patch the VM to yield the GIL every 250 opcodes.
 
 
-### stream.writes(str)
-In addition to Squirrel's standard functions for read/writing to blobs and files, writes(str) allows directly writing a string.
-
-### stream.reads(size)
-In addition to Squirrel's standard functions for read/writing to blobs and files, reads(size) alows reading up to size bytes as a str.
-
-
 ### setConfig(key, val)
 
 Sets a key in the config.ini file, creating it if it does not exist. Val gets converted to a string.
 
 Keys are a dot-separated hierarchy. If there is more than one component,  the first part is the section name, and the rest is the actual key.
+
+### dir(path)
+Constructor for a directory object. The directory object supports iteration with foreach, and will iterate over the basenames (not full paths) of everything in that directory.
+
+Note that spiffs directories aren't real, so the results may be closer to prefix mathing that true dir listing.
+
+### lorem()
+Returns a random quote as a string, useful for testing purposes.
+
+
+
+
+### Stream Object extensions
+
+Squirrel's streams are the basis for both Blobs and Strings.
+
+#### stream.writes(str)
+In addition to Squirrel's standard functions for read/writing to blobs and files, writes(str) allows directly writing a string.
+
+#### stream.reads(size)
+In addition to Squirrel's standard functions for read/writing to blobs and files, reads(size) alows reading up to size bytes as a str.
+
 
 
 ## API
@@ -134,6 +169,16 @@ The type of the function must be: void (*f)(loadedProgram *, void *)
 
 Loads some source code into a new program, replacing any old one with that ID, and immediately runs it in a background thread pool thread.
 
+### Acorns.loadFromFile(const char * fn)
+Load a file as a new program. The progam ID will be the basename of the file.
+
+
+### Acorns.isRunning(const char * id)
+Return 1 if a program with the given id is running
+
+### Acorns.isRunning(const char * id, const char * hash)
+Returns 1 if a program having the given ID and hash is running.
+
 ### Acorns.closeProgram(const char * id)
 
 Waits for a program to finish, then stops it.
@@ -141,6 +186,16 @@ Waits for a program to finish, then stops it.
 ### Acorns.replChar(char)
 
 Takes a character of input to the REPL loop. This loop has it's own program, and any output is printed to Serial.
+
+
+### Acorns.getConfig(const char * key, const char * default, char * buffer, char * bufferlen)
+
+Reads a configuration value into buffer. Key is in "section.key" format, like the config table within squirrel code.
+
+This function will first try to read from the table itself, and if the key isn't there, it will look in the ini file.
+
+If it's not there either, the default is used.
+
 
 ### CallbackData * Acorns.acceptCallback(HSQUIRRELVM vm, SQInteger idx, void(*cleanup)(CallbackData * p, void * arg), void * cleanupArg )
 

@@ -184,6 +184,9 @@ static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
   DIR ** d;
   struct dirent * de;
 
+  char buffer[258];
+  buffer[0]= '/';
+
   if(sq_getuserdata(v, 1,(void**)&d, 0)==SQ_ERROR)
   {
     return SQ_ERROR;
@@ -194,6 +197,8 @@ static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
     return sq_throwerror(v, "This directory object is invalid or has been closed");
   }
   de=readdir(*d);
+
+
 
   if(de)
   {
@@ -255,6 +260,13 @@ static int numQuotes()
 static const char * acorn_getQuote()
 {
     return acorn_Quoteslist[(doRandom()%numQuotes())];
+}
+
+static SQInteger sqlorem(HSQUIRRELVM v)
+{
+
+  sq_pushstring(v, acorn_getQuote(),-1);
+  return 1;
 }
 
 /*************************************************************************/
@@ -747,16 +759,26 @@ void _Acorns::writeToInput(const char * id, const char * data, int len)
 
 
 
-
+static int _closeProgram(const char * id, bool freeInput);
 
 //Function that the thread pool runs to run whatever program is on the top of an interpreter's stack
 static void runLoaded(loadedProgram * p, void * d)
 {
   sq_pushroottable(p->vm);
-  sq_call(p->vm, 1, SQFalse, SQTrue);
+  if(sq_call(p->vm, 1, SQFalse, SQTrue) == SQ_ERROR)
+  {
+    //If the flag saying we should do so is set, close the program on failure.
+    if(d==(void *)1)
+    {
+      _closeProgram(p->programID, true);
+      return;
+    }
+  }
   //Pop the closure itself.
   sq_pop(p->vm, 1);
 }
+
+
 
 static void _runInputBuffer(loadedProgram * p, void *d)
 {
@@ -788,8 +810,9 @@ void _Acorns::runInputBuffer(const char * id)
 }
 
 
+
 //Close a running program, waiting till all children are no longer busy.
-static int _closeProgram(const char * id)
+static int _closeProgram(const char * id, bool freeInput)
 {
   entropy += esp_random();
   rng_key += esp_random();
@@ -811,13 +834,18 @@ static int _closeProgram(const char * id)
 
     if(old->inputBuffer)
     {
-      free(old->inputBuffer);
+      if(freeInput)
+      {
+        free(old->inputBuffer);
+      }
     }
     //Close the VM and deref the task handle now that the VM is no longer busy.
     //The way we close the VM is to get rid of references to its thread object.
-    sq_release(old->vm, &old->threadObj);
-    old->vm = 0;
-    
+    if(old->vm)
+    {
+      sq_release(old->vm, &old->threadObj);
+      old->vm = 0;
+    }
     deref_prog(old);
 
   }
@@ -839,7 +867,7 @@ static void _forceclose(const char * id)
 int _Acorns::closeProgram(const char * id)
 {
   GIL_LOCK;
-  _closeProgram(id);
+  _closeProgram(id,true);
   GIL_UNLOCK;
 }
 
@@ -850,7 +878,7 @@ int _Acorns::closeProgram(const char * id, char force)
   {
     _forceclose(id);
   }
-  _closeProgram(id);
+  _closeProgram(id,true);
   GIL_UNLOCK;
 }
 
@@ -872,7 +900,7 @@ static SQInteger sqcloseProgram(HSQUIRRELVM v)
   id2[sq_getsize(v,2)] = 0;
 
   _forceclose(id2);
-  _closeProgram(id2);
+  _closeProgram(id2,true);
 
   return 0;
 }
@@ -888,15 +916,39 @@ static int _loadProgram(const char * code, const char * id)
   //Source
   entropy += esp_random();
   rng_key += esp_random();
+
+ 
+  //Pointer to pointer. So we can free the mem, then set pointer to 0
+  void ** inputBufToFree = 0;
+
   doRandom();
   
-  loadedProgram * old = _programForId(id);
+  struct loadedProgram * old = _programForId(id);
   //Check if programs are the same
+  //passing a null pointer tells it to use the input buffer
+  if (code == 0)
+  {
+    if(old)
+    {
+      if(old->inputBuffer)
+      {
+        code = old->inputBuffer;
+      }
+      else{
+         code = "//comment";
+      }
+    }
+    else
+    {
+    code = "//comment";
+    }
+  }
 
   if (old)
   {
+    inputBufToFree = (void **)(&old->inputBuffer);
     //Check if the versions are the same
-    if (memcmp(old->hash, code, 30) == 0)
+    if (memcmp(old->hash, code, PROG_HASH_LEN) == 0)
     {
       return 0;
     }
@@ -910,17 +962,13 @@ static int _loadProgram(const char * code, const char * id)
       GIL_LOCK;
     }
 
-    //Close the VM and deref the task handle now that the VM is no longer busy.
-    sq_close(old->vm);
-    deref_prog(old);
+
+    //We told it not to close the input buffer. We have to do that ourself.
+    _closeProgram(id, false);
 
   }
 
-  //passing a null pointer tells it to use the input buffer
-  if (code == 0)
-  {
-    code = "//comment";
-  }
+ 
 
   //Find a free interpreter slot
   for (char i = 0; i < ACORNS_MAXPROGRAMS; i++)
@@ -964,33 +1012,168 @@ static int _loadProgram(const char * code, const char * id)
       //Get rid of any garbage, and ensure there's at leas one thomg on the stack
       sq_settop(vm, 1);
 
-      if (SQ_SUCCEEDED(sq_compilebuffer(vm, code, strlen(code) + 1, _SC(id), SQTrue))) {
-        loadedPrograms[i]->vm = vm;
-        _makeRequest(loadedPrograms[i], runLoaded, 0);
+      memcpy(loadedPrograms[i]->hash, code, PROG_HASH_LEN);
+
+      //Don't overflow our 16 byte max prog ID
+      if(strlen(id)< 16)
+      {
+          strcpy(loadedPrograms[i]->programID, id);
       }
       else
       {
+          memcpy(loadedPrograms[i]->programID, id,15);
+          loadedPrograms[i]->programID[15] == 0;
+      }
+      loadedPrograms[i]->programID[strlen(id)] = 0;
+      loadedPrograms[i]->busy = 0;
+      loadedPrograms[i]->vm = vm;
+
+      if (SQ_SUCCEEDED(sq_compilebuffer(vm, code, strlen(code) + 1, _SC(id), SQTrue))) {
+              if(inputBufToFree)
+              {
+                free(*inputBufToFree);
+                *inputBufToFree = 0;
+              }
+         //That 1 is there as a special flag indicating we should close the program if we can't run it.
+        _makeRequest(loadedPrograms[i], runLoaded, (void *)1);
+      }
+      else
+      {
+        //If we can't compile the code, don't load it at all.
+        _closeProgram(id,true);
         Serial.println("Failed to compile code");
       }
 
 
-      memcpy(loadedPrograms[i]->hash, code, 30);
-      strcpy(loadedPrograms[i]->programID, id);
-      loadedPrograms[i]->programID[strlen(id)] = 0;
-      loadedPrograms[i]->busy = 0;
+
+
       return 0;
     }
   }
-
+  if(inputBufToFree)
+  {
+    free(*inputBufToFree);
+    *inputBufToFree = 0;
+  }
   //err, could not find free slot for program
   return 1;
 }
 
 
+int _Acorns::isRunning(const char * id, const char * hash)
+{
+  GIL_LOCK;
+  struct loadedProgram * x = _programForId(id);
+  if(hash)
+  {
+    if(memcmp(x->hash, hash, PROG_HASH_LEN))
+    {
+      x=0;
+    }
+  }
+  GIL_UNLOCK;
+
+  if(x)
+  {
+    return 1;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
+int _Acorns::isRunning(const char * id)
+{
+  isRunning(id,0);
+}
+
 int _Acorns::loadProgram(const char * code, const char * id)
 {
   GIL_LOCK;
   _loadProgram(code, id);
+  GIL_UNLOCK;
+}
+int  _Acorns::loadInputBuffer(const char * id)
+{
+  GIL_LOCK;
+  _loadProgram(0,id);
+  GIL_UNLOCK;
+}
+
+int _Acorns::loadFromFile(const char * fn)
+{
+  GIL_LOCK;
+  FILE * f = fopen(fn, "r");
+  if(f){
+      fseek(f, 0L, SEEK_END);
+      int sz = ftell(f);
+      rewind(f);
+
+      char * buf = (char *)malloc(sz);
+      int p = 0;
+      
+      int chr = fgetc(f);
+      while(chr != EOF)
+      {
+        buf[p]=chr;
+        chr=fgetc(f);
+        p+=1;
+      }
+      buf[p]=0;
+
+
+      //Find last slash in the path
+      const char * slash = fn;
+      while(*fn)
+      {
+        if(*fn=='/')
+        {
+          slash = fn;
+        }
+        fn++;
+      }
+      fclose(f);
+
+      GIL_UNLOCK;
+      loadProgram(buf,slash+1);
+      GIL_LOCK;
+  }
+  
+  GIL_UNLOCK;
+}
+
+int _Acorns::loadFromDir(const char * dir)
+{
+  GIL_LOCK;
+  DIR * d = opendir(dir);
+  char buffer[256];
+  struct dirent * de=readdir(d);
+  char * fnpart;
+
+  strcpy(buffer, dir);
+  if (buffer[strlen(dir)-1]=='/')
+  {
+    fnpart = buffer+strlen(dir);
+  }
+  else
+  {
+    buffer[strlen(dir)]= '/';
+    fnpart = buffer+strlen(dir)+1;
+  }
+
+  
+  while(de)
+  {
+    //Rather absurd hackery just to put a / before the path that seems to lack one.
+    strcpy(fnpart, de->d_name);
+    GIL_UNLOCK;
+    Serial.print("Loading program:");
+    Serial.println(buffer);
+    loadFromFile(buffer);
+    GIL_LOCK;
+    de=readdir(d);
+  }
   GIL_UNLOCK;
 }
 
@@ -1142,18 +1325,62 @@ static int iniCallback(const char *section, const char *key, const char *value, 
   return 1;
 }
 
+//This is the fallback getter for the config options
+static SQInteger sqgetconfigfromini(HSQUIRRELVM v)
+{
+  const char * key;
+
+  char buf[256];
+  char section[49];
+
+  if(sq_getstring(v,2,&key)==SQ_ERROR)
+  {
+    return sq_throwerror(v,"Key must be str");
+  }
+  char * x=strchr(key,'.');
+  if(x)
+  {
+    if(x-key> 47)
+    {
+      return sq_throwerror(v,"Section is too long(max 48 bytes)");
+    }
+    memcpy(section, key, (x-key)+1);
+    section[x-key] =0;
+    key = x+1;
+    ini_gets(section, key, "", buf, 256, cfg_inifile);
+  }
+  ini_gets("",key, "", buf, 256, cfg_inifile);
+
+  sq_pushstring(v,buf, -1);
+}
+
 void loadConfig()
 {
+
+
   sq_resetobject(&ConfigTable);
   sq_pushroottable(rootInterpreter->vm);
   sq_pushstring(rootInterpreter->vm,"config",-1);
   sq_newtableex(rootInterpreter->vm, 2);
+  //Create the delegate for the config function;
+  sq_newtableex(rootInterpreter->vm, 2);
+  sq_pushstring(rootInterpreter->vm,"_get",-1);
+  sq_newclosure(rootInterpreter->vm,sqgetconfigfromini,0); //create a new function
+  sq_newslot(rootInterpreter->vm,-3,SQFalse);
+
+
+
+
+
   sq_getstackobj(rootInterpreter->vm, -1, &ConfigTable);
   sq_addref(rootInterpreter->vm,&ConfigTable);
   sq_newslot(rootInterpreter->vm,-3, SQFalse);
+
+
+
   sq_pop(rootInterpreter->vm,1);
 
-
+  /*
   //Ensure the existance of the file.
   FILE * f = fopen(cfg_inifile,"r");
   if(f)
@@ -1166,6 +1393,7 @@ void loadConfig()
   }
 
   ini_browse(iniCallback, 0, cfg_inifile);
+  */
 }
 
 static SQInteger sqwriteconfig(HSQUIRRELVM v)
@@ -1205,6 +1433,64 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
   ini_puts("", key,val,cfg_inifile);
 }
 
+
+
+/*First try to get a value from the table itself. Failing that, try to get a value from the .ini file.*/
+
+void _Acorns::getConfig(const char * key, const char * d, char * buf, int maxlen )
+{
+
+  char section [256];
+
+  char * x=strchr(key,'.');
+
+  const char * buf2;
+  bool found = false;
+  
+
+  sq_pushobject(rootInterpreter->vm, ConfigTable);
+  sq_pushstring(rootInterpreter->vm, key, -1);
+  if(sq_get(rootInterpreter->vm,-1) != SQ_ERROR)
+  {
+    if(sq_getsize(rootInterpreter->vm,-1)<maxlen)
+    {
+       sq_getstring(rootInterpreter->vm,-1, &buf2);
+       strcpy(buf, buf2);
+       found = true;
+    }
+    sq_pop(rootInterpreter->vm, 1);
+  }
+    sq_pop(rootInterpreter->vm, 1);
+  if (found)
+  {
+    return;
+  }
+
+ if(x)
+  {
+    if(x-key> 47)
+    {
+
+    }
+    else
+    {
+      memcpy(section, key, (x-key)+1);
+      section[x-key] =0;
+      char * akey = x+1;
+
+      ini_gets(section, akey, "", buf, maxlen, cfg_inifile);
+
+      if(strlen(buf))
+      {
+        return;
+      }
+    }
+  }
+  if(strlen(d)< maxlen)
+  {
+    strcpy(buf, d);
+  }
+}
 /***************************************************************************************/
 //WiFi
 //Connect to wifi based on config file
@@ -1246,18 +1532,7 @@ static void findLocalNtp()
     
 }
 */
-static void WiFiEvent(WiFiEvent_t event){
 
-    switch(event) {
-      case SYSTEM_EVENT_STA_GOT_IP:
-
-          
-          break;
-      case SYSTEM_EVENT_STA_DISCONNECTED:
-          Serial.println("WiFi lost connection");
-          break;
-    }
-}
 
 //Configure wifi according to the config file
 static void wifiConnect()
@@ -1265,8 +1540,6 @@ static void wifiConnect()
   char ssid[65];
   char psk[65];
   char wifimode[8];
-  char hostname[32];
-  char webserveren[4];
 
 
   //Ensure the existance of the file.
@@ -1280,20 +1553,16 @@ static void wifiConnect()
     return;
   }
 
-  ini_gets("wifi","ssid","",ssid, 64, cfg_inifile);
-  ini_gets("wifi","psk","",psk, 64, cfg_inifile);
-  ini_gets("wifi","mode","sta",wifimode, 8, cfg_inifile);
-  ini_gets("wifi","webserver","no",webserveren, 4, cfg_inifile);
-
-
-  WiFi.onEvent(WiFiEvent);
+  Acorns.getConfig("wifi.ssid","",ssid, 64);
+  Acorns.getConfig("wifi.psk","",psk, 64);
+  Acorns.getConfig("wifi.mode","sta",wifimode, 8);
   
   if(strcmp(wifimode,"sta")==0)
   {
     if(strlen(ssid))
     {
       WiFi.begin(ssid, psk);
-      Serial.print("Configured to connect to: ");
+      Serial.print("Trying to connect to: ");
       Serial.println(ssid);
     }
   }
@@ -1305,13 +1574,20 @@ static void wifiConnect()
    
   }
    
-    //Lets us advertise a hotspot.
-    ini_gets("wifi","hostname","sta",hostname, 32, cfg_inifile);
-    if(strlen(hostname))
-    {
-      MDNS.begin(hostname);
-    }
 
+
+}
+
+static void WiFiEvent(WiFiEvent_t event){
+
+    switch(event) {
+      case SYSTEM_EVENT_STA_GOT_IP:
+
+          break;
+      case SYSTEM_EVENT_STA_DISCONNECTED:
+          wifiConnect();
+          break;
+    }
 }
 
 //**************************************************************************************/
@@ -1370,9 +1646,19 @@ void resetLoadedProgram(loadedProgram * p)
 
 static HSQOBJECT ReplThreadObj;
 
+
+static bool began = false;
+
 //Initialize squirrel task management
 void _Acorns::begin()
 {
+ 
+  //Run this once and only once
+  if (began)
+  {
+    return;
+  }
+  began = true;
 
   Serial.println("Acorns: Squirrel for Arduino");
   Serial.println("Based on: http://www.squirrel-lang.org/\n");
@@ -1387,7 +1673,8 @@ void _Acorns::begin()
   xSemaphoreGive(_acorns_gil_lock);
 
 
-  wifiConnect();  
+
+
 
   //This will probably seed the RNG far better than anyone should even think of needing
   //For non-crypto stuff.
@@ -1405,13 +1692,26 @@ void _Acorns::begin()
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
-
-
-
+  
   //Setup the config system
   loadConfig();
+
+  WiFi.onEvent(WiFiEvent);
+  wifiConnect();  
+
+  //Lets us advertise a hostname. This already has it's own auto reconnect logic.
+  char hostname[32];
+  Acorns.getConfig("wifi.hostname","",hostname, 32);
+  if(strlen(hostname))
+  {
+    Serial.println("Doing MDNS begin");
+    MDNS.begin(hostname);
+  }
+
+
   registerFunction(0, sqwriteconfig, "setConfig");
 
+  registerFunction(0, sqlorem, "lorem");
   registerFunction(0, sqrandom, "random");
   registerFunction(0, sqimport,"import");
   registerFunction(0, sqcloseProgram,"forceClose");
@@ -1455,7 +1755,7 @@ void _Acorns::begin()
   //create the dir function.
   registerFunction(0,sqdirectoryiterator,"dir");
 
-  memcpy(rootInterpreter->hash, "//This is the first line of the code which will server as the ID", 30);
+  memcpy(rootInterpreter->hash, "//This is the first line of the code which will server as the ID", PROG_HASH_LEN);
   rootInterpreter->busy = 0;
   rootInterpreter->inputBuffer =0;
   rootInterpreter->inputBufferLen =0;
@@ -1503,6 +1803,8 @@ void _Acorns::begin()
   Serial.println("\nStarted REPL interpreter\n");
   //All booted 
   Serial.println(acorn_getQuote());
+
+  loadFromDir("/spiffs/sqprogs");
 }
 
 SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fname)

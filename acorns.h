@@ -32,6 +32,8 @@ extern "C"
 #include "utility/sqstdstring.h"
 #include "utility/sqstdaux.h"
 }
+#include "utility/minIni.h"
+
 struct CallbackData;
 struct loadedProgram;
 class _Acorns
@@ -41,6 +43,8 @@ class _Acorns
     void replChar(char);
     void begin();
     int loadProgram(const char * code, const char * id);
+    int loadInputBuffer(const char * id);
+
     int closeProgram(const char * id);
     int closeProgram(const char * id, char force);
 
@@ -54,8 +58,15 @@ class _Acorns
     void runInputBuffer(const char * id);
     void writeToInput(const char * id, const char * data, int len);
     void clearInput(const char * id);
+
+    int isRunning(const char * id);
+    int isRunning(const char * id, const char * hash);
+    void getConfig(const char * key, const char * d, char * buf, int maxlen );
+    int loadFromFile(const char * fn);
+    int loadFromDir(const char * dir);
 };
 
+#define PROG_HASH_LEN 24
 //The userdata struct for each loadedProgram interpreter
 struct loadedProgram
 {
@@ -64,10 +75,10 @@ struct loadedProgram
   //So we can zero it when we free it.
   struct loadedProgram ** slot;
   //This is how we can know which program to replace when updating with a new version
-  char programID[16];
+  char programID[24];
   //The first 30 bytes of a file identify its "version" so we don't
   //replace things that don't need replacing.
-  char hash[30];
+  char hash[PROG_HASH_LEN];
 
   //This is the input buffer that gives us an easy way to send things to a program
   //in excess of the 1500 byte limit for UDP. We might also use it for other stuff later.

@@ -225,7 +225,6 @@ static SQInteger sqpinmode(HSQUIRRELVM v)
 }
 
 
-
 void _Acorns::addArduino(HSQUIRRELVM vm)
 {
 
