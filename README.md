@@ -7,7 +7,11 @@ an easy API for loading and unloading programs and having multiple running at on
 In addition to that, acorns aims to provide a runtime layer that gives you the kind of configurability you might
 expect from a Linux box.
 
-Try it out with the REPL example sketch, and be warned there's probably bugs and the API isn't stable yet.
+Try it out with the REPL example sketch, and be warned there's probably bugs and the API isn't stable yet. To print the value of an expression,
+just begin it with =.
+
+Open th serial monitor and try:
+`=lorem()`
 
 
 ## License
