@@ -18,7 +18,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.*/
 
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "Arduino.h"
 #include "acorns.h"
 #include <WiFi.h>
@@ -479,6 +480,7 @@ void _Acorns::makeRequest(const char * id, void (*f)(loadedProgram *, void *), v
   loadedProgram * program = _programForId(id);
   if(program==0)
   {
+    GIL_UNLOCK;
     return;
   }
   _makeRequest(program, f, arg);
@@ -619,7 +621,6 @@ struct CallbackData* _Acorns::acceptCallback(HSQUIRRELVM vm, SQInteger idx,void 
   d->cleanup =cleanup;
 
   struct loadedProgram * prg = ((loadedProgram *)sq_getforeignptr(vm));
-  Serial.println((int)prg);
   //One for the user side, one for the internal side that actually recieves the data.
   d->refcount = 2;
 
@@ -691,6 +692,32 @@ static struct loadedProgram* _programForId(const char * id)
   return 0;
 }
 
+static struct loadedProgram** _programSlotForId(const char * id)
+{
+  if (id == 0)
+  {
+    if (rootInterpreter)
+    {
+      return &rootInterpreter;
+    }
+    else
+    {
+      return 0;
+    }
+  }
+  for (char i = 0; i < ACORNS_MAXPROGRAMS; i++)
+  {
+    if (loadedPrograms[i])
+    {
+      if (strcmp(loadedPrograms[i]->programID, id) == 0)
+      {
+        return &(loadedPrograms[i]);
+      }
+    }
+  }
+  return 0;
+}
+
 
 
 //Only call under gil
@@ -710,6 +737,7 @@ void _Acorns::clearInput(const char * id)
   loadedProgram * p = _programForId(id);
   if (p==0)
   {
+    GIL_UNLOCK;
     return;
   }
   if(p->inputBuffer)
@@ -722,18 +750,41 @@ void _Acorns::clearInput(const char * id)
   GIL_UNLOCK;
 }
 
+
 void _Acorns::writeToInput(const char * id, const char * data, int len)
+{
+  writeToInput(id,data,len,-1);
+}
+
+///Position is mostly there to allow for idempotent writes. Set to -1 to append to the end.
+///But it will fill with garbage if you leave gaps
+void _Acorns::writeToInput(const char * id, const char * data, int len, long position)
 {
   GIL_LOCK;
   loadedProgram * p = _programForId(id);
   if (p==0)
   {
+    GIL_UNLOCK;
     return;
   }
 
   if (len == -1)
   {
     len = strlen(data);
+  }
+
+  if(position==-1)
+  {
+    position=p->inputBufferLen;
+  }
+
+  //How much total len is needed for the contents
+  long needed = len+position;
+
+  char addlen =1;
+  if(len==1)
+  {
+    addlen =0;
   }
 
   if(p->inputBuffer ==0)
@@ -743,15 +794,19 @@ void _Acorns::writeToInput(const char * id, const char * data, int len)
   }
   else
   {
-    //TODO: this is a memory leak if realloc ever fails
-    if((p->inputBuffer = (char *)realloc(p->inputBuffer, p->inputBufferLen+len))==0)
+    char * x = 0;
+    //add one for safety and to optimize things with 2 writes where the second is a null pointer.
+    //If the len is one, don't add one, because we assume this is the last one.
+    if((x = (char *)realloc(p->inputBuffer, needed+addlen))==0)
     {
+      GIL_UNLOCK;
       return;
     }
+    p->inputBuffer = x;
   }
 
-  memcpy(p->inputBuffer+(p->inputBufferLen), data, len);
-  p->inputBufferLen += len;
+  memcpy(p->inputBuffer+position, data, len);
+  p->inputBufferLen = needed;
 
   GIL_UNLOCK;
 }
@@ -764,6 +819,7 @@ static int _closeProgram(const char * id, bool freeInput);
 //Function that the thread pool runs to run whatever program is on the top of an interpreter's stack
 static void runLoaded(loadedProgram * p, void * d)
 {
+  SQInt32 x = sq_gettop(p->vm);
   sq_pushroottable(p->vm);
   if(sq_call(p->vm, 1, SQFalse, SQTrue) == SQ_ERROR)
   {
@@ -775,7 +831,7 @@ static void runLoaded(loadedProgram * p, void * d)
     }
   }
   //Pop the closure itself.
-  sq_pop(p->vm, 1);
+  sq_settop(p->vm, x);
 }
 
 
@@ -798,7 +854,6 @@ static void _runInputBuffer(loadedProgram * p, void *d)
         return;
       }
 
-    runLoaded(p, 0);
     free(p->inputBuffer);
     p->inputBuffer = 0;
     p->inputBufferLen = 0;
@@ -814,39 +869,42 @@ void _Acorns::runInputBuffer(const char * id)
 //Close a running program, waiting till all children are no longer busy.
 static int _closeProgram(const char * id, bool freeInput)
 {
+  Serial.print("Closing Program: ");
+  Serial.println(id);
   entropy += esp_random();
   rng_key += esp_random();
   doRandom();
   
-  loadedProgram * old = _programForId(id);
+  loadedProgram ** old = _programSlotForId(id);
   //Check if programs are the same
 
   if (old)
   {
  
     ///Something can be "busy" without holding the lock if it yields.
-    while (old->busy)
+    while ((*old)->busy)
     {
       GIL_UNLOCK;
-      delay(2500);
+      delay(100);
       GIL_LOCK;
     }
 
-    if(old->inputBuffer)
+    if((*old)->inputBuffer)
     {
       if(freeInput)
       {
-        free(old->inputBuffer);
+        free((*old)->inputBuffer);
       }
     }
     //Close the VM and deref the task handle now that the VM is no longer busy.
     //The way we close the VM is to get rid of references to its thread object.
-    if(old->vm)
+    if((*old)->vm)
     {
-      sq_release(old->vm, &old->threadObj);
-      old->vm = 0;
+      sq_release((*old)->vm, &((*old)->threadObj));
+      (*old)->vm = 0;
     }
-    deref_prog(old);
+    deref_prog(*old);
+    *old =0;
 
   }
 }
@@ -909,19 +967,23 @@ static SQInteger sqcloseProgram(HSQUIRRELVM v)
 //Load a new program from source code with the given ID, replacing any with the same ID if the
 //first 30 bytes are different. The new program will have its own global scope that an inner scope of the root interpreter's.
 //You will be able to use getdelegate to get at the root table directly.
+
+//Passing a null to input tries to load the program's input buffer as the replacement for the program.
+//If there's no old program or no input buffer, does nothing.
 static int _loadProgram(const char * code, const char * id)
 {
 
+  Serial.print("Loading program: ");Serial.println(id);
   //Program load times as another entropy
   //Source
   entropy += esp_random();
   rng_key += esp_random();
 
  
+  void * inputBufToFree = 0;
   //Pointer to pointer. So we can free the mem, then set pointer to 0
-  void ** inputBufToFree = 0;
+  void ** inputBufToFreep = 0;
 
-  doRandom();
   
   struct loadedProgram * old = _programForId(id);
   //Check if programs are the same
@@ -935,21 +997,26 @@ static int _loadProgram(const char * code, const char * id)
         code = old->inputBuffer;
       }
       else{
-         code = "//comment";
+         Serial.println("No code or input buffer, cannot load");
+         return 1;
       }
     }
     else
     {
-    code = "//comment";
+      Serial.println("No code or previous program input buffer, cannot load");
+      return 1;
     }
   }
 
   if (old)
   {
-    inputBufToFree = (void **)(&old->inputBuffer);
+    inputBufToFree = (void *)(old->inputBuffer);
+    inputBufToFreep = (void **)(&old->inputBuffer);
+
     //Check if the versions are the same
     if (memcmp(old->hash, code, PROG_HASH_LEN) == 0)
     {
+      Serial.println("That exact program version is already loaded, doing nothing.");
       return 0;
     }
 
@@ -992,7 +1059,7 @@ static int _loadProgram(const char * code, const char * id)
       HSQUIRRELVM vm;
       loadedPrograms[i]->vm = sq_newthread(rootInterpreter->vm, 1024);
       vm = loadedPrograms[i]->vm;
-      sq_setforeignptr(vm, &loadedPrograms[i]);
+      sq_setforeignptr(vm, loadedPrograms[i]);
       sq_resetobject(&loadedPrograms[i]->threadObj);
 
       //Get the thread handle, ref it so it doesn't go away, then store it in the loadedProgram
@@ -1024,38 +1091,40 @@ static int _loadProgram(const char * code, const char * id)
           memcpy(loadedPrograms[i]->programID, id,15);
           loadedPrograms[i]->programID[15] == 0;
       }
-      loadedPrograms[i]->programID[strlen(id)] = 0;
       loadedPrograms[i]->busy = 0;
       loadedPrograms[i]->vm = vm;
 
       if (SQ_SUCCEEDED(sq_compilebuffer(vm, code, strlen(code) + 1, _SC(id), SQTrue))) {
               if(inputBufToFree)
               {
-                free(*inputBufToFree);
-                *inputBufToFree = 0;
+                free(inputBufToFree);
+                *inputBufToFreep = 0;
               }
          //That 1 is there as a special flag indicating we should close the program if we can't run it.
         _makeRequest(loadedPrograms[i], runLoaded, (void *)1);
       }
       else
       {
+              if(inputBufToFree)
+              {
+                free(inputBufToFree);
+                *inputBufToFreep = 0;
+              }
         //If we can't compile the code, don't load it at all.
         _closeProgram(id,true);
         Serial.println("Failed to compile code");
       }
-
-
-
 
       return 0;
     }
   }
   if(inputBufToFree)
   {
-    free(*inputBufToFree);
-    *inputBufToFree = 0;
+    free(inputBufToFree);
+    *inputBufToFreep = 0;
   }
   //err, could not find free slot for program
+  Serial.println("No free program slots");
   return 1;
 }
 
@@ -1064,6 +1133,11 @@ int _Acorns::isRunning(const char * id, const char * hash)
 {
   GIL_LOCK;
   struct loadedProgram * x = _programForId(id);
+  if(x==0)
+  {
+    GIL_UNLOCK;
+    return 0;
+  }
   if(hash)
   {
     if(memcmp(x->hash, hash, PROG_HASH_LEN))
@@ -1085,7 +1159,7 @@ int _Acorns::isRunning(const char * id, const char * hash)
 
 int _Acorns::isRunning(const char * id)
 {
-  isRunning(id,0);
+  return isRunning(id,0);
 }
 
 int _Acorns::loadProgram(const char * code, const char * id)
@@ -1168,7 +1242,7 @@ int _Acorns::loadFromDir(const char * dir)
     //Rather absurd hackery just to put a / before the path that seems to lack one.
     strcpy(fnpart, de->d_name);
     GIL_UNLOCK;
-    Serial.print("Loading program:");
+    Serial.print("Loading program from file:");
     Serial.println(buffer);
     loadFromFile(buffer);
     GIL_LOCK;
@@ -1277,10 +1351,9 @@ doing:
         retval = 0;
       }
     }
-
     sq_settop(replvm, oldtop);
-  GIL_UNLOCK;
   }
+  GIL_UNLOCK;
 resetting:
   replpointer = 0;
   blocks = 0;
@@ -1581,14 +1654,18 @@ static void wifiConnect()
 
 }
 
+
+
+
+
 static void WiFiEvent(WiFiEvent_t event){
 
     switch(event) {
       case SYSTEM_EVENT_STA_GOT_IP:
-
           break;
       case SYSTEM_EVENT_STA_DISCONNECTED:
           wifiConnect();
+
           break;
     }
 }
@@ -1596,26 +1673,65 @@ static void WiFiEvent(WiFiEvent_t event){
 //**************************************************************************************/
 //General system control
 
+//It's actually down below in this file
+extern struct loadedProgram * replprogram;
 
-static void printfunc(HSQUIRRELVM SQ_UNUSED_ARG(v), const SQChar *s, ...)
+static void printfunc(HSQUIRRELVM v, const SQChar *s, ...)
 {
+
+  struct loadedProgram * prg = ((loadedProgram *)sq_getforeignptr(v));  
+
   char buf[256];
   va_list vl;
   va_start(vl, s);
   vsnprintf(buf, 256, s, vl);
   va_end(vl);
-  Serial.print(buf);
+    if(prg==replprogram)
+    {
+      Serial.println(buf);
+    }
+    else
+    {
+      if (Acorns.printfunc)
+      {
+        Acorns.printfunc(prg, buf);
+      }
+      else
+      {
+        Serial.println(buf);
+      }
+    }
 }
 
-static void errorfunc(HSQUIRRELVM SQ_UNUSED_ARG(v), const SQChar *s, ...)
+static void errorfunc(HSQUIRRELVM v, const SQChar *s, ...)
 {
+
+  struct loadedProgram * prg = ((loadedProgram *)sq_getforeignptr(v));  
+
   char buf[256];
   va_list vl;
   va_start(vl, s);
   vsnprintf(buf, 256, s, vl);
   va_end(vl);
-  Serial.println("");
-  Serial.print(buf);
+
+
+  if(prg==replprogram)
+  {
+    Serial.println("");
+    Serial.print(buf);
+  }
+  else
+  {
+    if (Acorns.errorfunc)
+    {
+      Acorns.errorfunc(prg, buf);
+    }
+    else
+    {
+      Serial.println("");
+      Serial.print(buf);
+    }
+  }
 }
 
 
@@ -1685,11 +1801,8 @@ void _Acorns::begin()
   rng_key += esp_random()<<32;
   
   entropy += esp_random()<<32;
+  entropy += esp_random();
 
-  entropy += esp_random();
-  doRandom();
-  entropy += esp_random();
-  doRandom();
 
   //Start the root interpreter
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
@@ -1781,6 +1894,9 @@ void _Acorns::begin()
                            );
   }
 
+
+
+
   Serial.println("Initialized root interpreter.");
 
   replvm = sq_newthread(rootInterpreter->vm, 1024);
@@ -1800,14 +1916,14 @@ void _Acorns::begin()
   //Clear the stack, just in case. It's important the ome thing we leave
   //Be the repl VM.
   sq_settop(rootInterpreter->vm, 1);
-
+  loadFromDir("/spiffs/sqprogs");
   Serial.print("Free Heap: ");
   Serial.print(ESP.getFreeHeap());
   Serial.println("\nStarted REPL interpreter\n");
   //All booted 
   Serial.println(acorn_getQuote());
+  Serial.print("\n>>>");
 
-  loadFromDir("/spiffs/sqprogs");
 }
 
 SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fname)

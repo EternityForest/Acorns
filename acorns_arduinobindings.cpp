@@ -259,9 +259,6 @@ void _Acorns::addArduino(HSQUIRRELVM vm)
   //Now we make the "system" namespace which is just a table of static members
   sq_pushroottable(vm);
 
-  //Add to the stdlib system namespace
-  sq_pushstring(vm,"system", -1);
-  sq_get(vm, -2);
   sq_pushstring(vm,"memfree",-1);
   sq_newclosure(vm,sqfreeheap,0); //create a new function
   sq_newslot(vm,-3,SQFalse);

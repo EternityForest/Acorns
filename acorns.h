@@ -40,6 +40,10 @@ class _Acorns
 {
 
   public:
+
+    void (*printfunc)(loadedProgram *, const char *);
+    void (*errorfunc)(loadedProgram *, const char *);
+
     void replChar(char);
     void begin();
     int loadProgram(const char * code, const char * id);
@@ -57,6 +61,8 @@ class _Acorns
     void addArduino(HSQUIRRELVM);
     void runInputBuffer(const char * id);
     void writeToInput(const char * id, const char * data, int len);
+    void writeToInput(const char * id, const char * data, int len, long position);
+
     void clearInput(const char * id);
 
     int isRunning(const char * id);

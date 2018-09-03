@@ -28,7 +28,8 @@ value, which is just the first 24 bytes of code.
 If you try to load new code into a program that already exists, if the hashes are the same nothing happens. If they are not,
 the old program is stopped(after it is no longer busy), and the new one is loaded.
 
-If you actually want the hashes to do anything, you have to make sure that the first 24 bytes 
+If you actually want the hashes to do anything, you have to make sure that the first 24 bytes are uniquie in each version, otherwise the files will be identified as
+being the same.
 
 
 Acorns itself in some ways tries to act more like a pseudo-OS, and can manage things like WiFi based on the config file.
@@ -234,6 +235,19 @@ and it's a handy way to load code via the network in small packets.
 
 ### Acorns.clearInputBuffer(char * id)
 Clears the input buffer of a loaded program.
+
+### Acorns.errorfunc
+Lets you handle errors for anything except the REPL interpreter. You can set to a function matching:
+`void f(loadedProgram *, const char *)`
+
+The char * will be the error info str. It's not malloced, so don't free it.
+
+### Acorns.printfunc
+Lets you handle print() for anything except the REPL interpreter. You can set to a function matching:
+`void f(loadedProgram *, const char *)`
+
+The char * will be the error info str. It's not malloced, so don't free it.
+
 
 
 ### SQRESULT sq_userImportFunction(HSQUIRRELVM v, const char * c, char len) __attribute__((weak))
