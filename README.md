@@ -201,6 +201,15 @@ This function will first try to read from the table itself, and if the key isn't
 
 If it's not there either, the default is used.
 
+###  SQInteger Acorns.registerFunction(const char* id,SQFUNCTION f,const char *fname)
+
+Register a SQFUNCTION(Of the type you would use to create a closure using the usual C api) to the given program ID(pass NULL for the root, which makes it accessible
+to all apps) with the given name.
+
+Note that the global interpreter lock may crash the entire thing if you take more than a few seconds. If you need more time, release and reaquire the GIL with the
+GIL_UNLOCK() and GIL_LOCK() when it is safe to do so.
+
+This crashing behavior is intentional, as Acorns is meant for responsive interactive applications.
 
 ### CallbackData * Acorns.acceptCallback(HSQUIRRELVM vm, SQInteger idx, void(*cleanup)(CallbackData * p, void * arg), void * cleanupArg )
 
