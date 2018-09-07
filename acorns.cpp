@@ -987,8 +987,12 @@ static SQInteger sqcloseProgram(HSQUIRRELVM v)
 //If there's no old program or no input buffer, does nothing.
 static int _loadProgram(const char * code, const char * id)
 {
-
-  Serial.print("Loading program: ");Serial.println(id);
+  //Don't show the message when we load the empty program just to write things to the buffer
+  //Because we don't want to show it twice when we actually load it.
+  if(code)
+  {
+    Serial.print("Loading program: ");Serial.println(id);
+  }
   //Program load times as another entropy
   //Source
   entropy += esp_random();

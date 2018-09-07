@@ -743,6 +743,8 @@ exception_restore:
                 sq_threadyield();
                 if(stopRequestedFlag)
                 {
+                    //This kind of exception we don't handle
+                    allowHandleException = false;
                     Raise_Error("Execution stopped via API call"); SQ_THROW(); continue;
                 }
             }
