@@ -46,6 +46,9 @@ class _Acorns
 
     void replChar(char);
     void begin();
+    void begin(const char *);
+
+
     int loadProgram(const char * code, const char * id);
     int loadInputBuffer(const char * id);
     int loadInputBuffer(const char * id,bool force);

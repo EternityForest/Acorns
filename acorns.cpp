@@ -1251,6 +1251,11 @@ int _Acorns::loadFromDir(const char * dir)
 {
   GIL_LOCK;
   DIR * d = opendir(dir);
+  if(d==0)
+  {
+    GIL_UNLOCK;
+    return 0;
+  }
   char buffer[256];
   struct dirent * de=readdir(d);
   char * fnpart;
@@ -1798,10 +1803,17 @@ static HSQOBJECT ReplThreadObj;
 
 static bool began = false;
 
-//Initialize squirrel task management
 void _Acorns::begin()
 {
- 
+  return _Acorns::begin(0);
+}
+//Initialize squirrel task management
+void _Acorns::begin(const char * prgsdir)
+{
+  if(prgsdir == 0)
+  {
+    prgsdir = "/spiffs/sqprogs";
+  }
   //Run this once and only once
   if (began)
   {
@@ -1946,7 +1958,7 @@ void _Acorns::begin()
   //Clear the stack, just in case. It's important the ome thing we leave
   //Be the repl VM.
   sq_settop(rootInterpreter->vm, 1);
-  loadFromDir("/spiffs/sqprogs");
+  loadFromDir(prgsdir);
   Serial.print("Free Heap: ");
   Serial.print(ESP.getFreeHeap());
   Serial.println("\nStarted REPL interpreter\n");
