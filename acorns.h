@@ -50,11 +50,15 @@ class _Acorns
 
 
     int loadProgram(const char * code, const char * id);
+    int runProgram(const char * code, const char * id);
+    int runProgram(const char * code, const char * id,  void (*errorfunc)(loadedProgram *, const char *)=NULL, void (*printfunc)(loadedProgram *, const char *)=NULL, const char * workingDir=0);
+
     int loadInputBuffer(const char * id);
     int loadInputBuffer(const char * id,bool force);
 
     int closeProgram(const char * id);
     int closeProgram(const char * id, char force);
+    String joinWorkingDir(HSQUIRRELVM v,char * dir);
 
     struct CallbackData *acceptCallback(HSQUIRRELVM vm, SQInteger idx,void (*cleanup)(struct loadedProgram *, void *));
     void makeRequest(const char *, void (*f)(loadedProgram *, void *), void * arg);
@@ -74,6 +78,9 @@ class _Acorns
     void getConfig(const char * key, const char * d, char * buf, int maxlen );
     int loadFromFile(const char * fn);
     int loadFromDir(const char * dir);
+
+    const char * getQuote();
+
 };
 
 #define PROG_HASH_LEN 24
@@ -89,7 +96,7 @@ struct loadedProgram
   //The first 30 bytes of a file identify its "version" so we don't
   //replace things that don't need replacing.
   char hash[PROG_HASH_LEN];
-
+  char * workingDir;
   //This is the input buffer that gives us an easy way to send things to a program
   //in excess of the 1500 byte limit for UDP. We might also use it for other stuff later.
   char * inputBuffer;
@@ -129,6 +136,12 @@ struct loadedProgram
 
   //linked list of the recievers, or 0 if there are none.
   struct CallbackData * callbackRecievers;
+  
+  //This errorfunc handles errors for that program in addition to reporting to the root.
+  //Same with print.
+
+    void (*printfunc)(loadedProgram *, const char *);
+    void (*errorfunc)(loadedProgram *, const char *);
 
 };
 struct CallbackData

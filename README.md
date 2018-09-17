@@ -81,7 +81,7 @@ Get an integer in the given range. Might have a tiny bit of bias, so don't use i
 Unlike Arduino, there's no repeatability to this sequence, and the system mixes in a bit of entropy at each call
 to keep it unpredictable enough for games, simulations, etc.
 
-Uses the PCG algorithm, and the micros() value.
+Uses the PCG algorithm, and the micros() value, along ith the hardware RNG.
 
 ### millis()/micros()
 As Arduino's millis()/micros(). Returns time since boot.
@@ -143,6 +143,10 @@ Note that spiffs directories aren't real, so the results may be closer to prefix
 ### lorem()
 Returns a random quote as a string, useful for testing purposes.
 
+### exit()
+Raises an exception that cannot be handled, ending the program. Simply returning and reaching the end of the program is preferred, to avoid spurious
+error messages. This may actually close the program if it was configured to close on errors.
+
 
 
 
@@ -173,6 +177,12 @@ The type of the function must be: void (*f)(loadedProgram *, void *)
 ### Acorns.loadProgram(const char * code, const char * id)
 
 Loads some source code into a new program, replacing any old one with that ID, and immediately runs it in a background thread pool thread.
+
+
+### Acorns.runProgram(const char * code, const char * id)
+
+Loads some source code into a new program, replacing any old one with that ID, and immediately runs it synchronously in the calling thread.
+
 
 ### Acorns.loadFromFile(const char * fn)
 Load a file as a new program. The progam ID will be the basename of the file.
