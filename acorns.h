@@ -168,15 +168,20 @@ void deref_cb(CallbackData * p);
 
 extern _Acorns Acorns;
 
-extern SemaphoreHandle_t _acorns_gil_lock;
 
+#ifdef INC_FREERTOS_H
 //Wait 10 million ticks which is probably days, but still assert it if it fails
+extern SemaphoreHandle_t _acorns_gil_lock;
 #define GIL_LOCK assert(xSemaphoreTake(_acorns_gil_lock,200))
 #define GIL_UNLOCK xSemaphoreGive(_acorns_gil_lock)
-
+#else
+#define GIL_LOCK
+#define GIL_UNLOCK
+#endif
 
 //How many threads in the thread pool
 #define  ACORNS_THREADS 4
 
 //How many slots in the process table
 #define ACORNS_MAXPROGRAMS 16
+#define dbg(x) Serial.println(x)

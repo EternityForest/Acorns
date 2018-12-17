@@ -18,14 +18,30 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.*/
 
+#include "Arduino.h"
+#ifdef INC_FREERTOS_H
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "Arduino.h"
+#endif
+
 #include "acorns.h"
-#include <WiFi.h>
-#include <dirent.h>
 #include "minIni.h"
+
+#ifdef ESP32
+#include <WiFi.h>
 #include <ESPmDNS.h>
+#include <dirent.h>
+#include <SPIFFS.h>
+#endif
+
+#ifdef ESP8266
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
+#include <FS.h>
+#define esp_random() secureRandom(65536L)
+#include "posix_compat.h"
+#endif
+
 
 /************************************************************************************************************/
 //Data Structures, forward declarations
@@ -52,7 +68,9 @@ static struct loadedProgram *_programForId(const char *id);
 
 //The global interpreter lock. Almost any messing
 //with of interpreters uses this.
+#ifdef INC_FREERTOS_H
 SemaphoreHandle_t _acorns_gil_lock;
+#endif
 
 //This gets called every 250 instructions in long running squirrel programs to other threads can do things.
 void sq_threadyield()
@@ -216,6 +234,7 @@ const char *acorn_Quoteslist[] = {
     "\"His cloak was well-worn and had many small pockets\"",
     "\"Roads go ever ever on,\nOver rock and under tree,\nBy caves where never sun has shone,\nBy streams that never find the sea;\nOver snow by winter sown,\nAnd through the merry flowers of June,\nOver grass and over stone,\nAnd under mountains in the moon.\"\n-- J. R. R. Tolkien ",
     "\"The runes read 'I serve but the good,\n        of life and liberty'\"\n    -Leslie Fish, \"The Arizona Sword\"",
+    "\"It's dangerous to go alone! Take this.\"",
     0};
 
 static int numQuotes()
@@ -402,13 +421,15 @@ static void _setfree(struct loadedProgram *p)
 /*******************************************************************/
 //Thread pool stuff
 
+#ifdef INC_FREERTOS_H
 //This is the thread pool
 static TaskHandle_t sqTasks[ACORNS_THREADS];
-
 //The queue going into the thread pool
 static QueueHandle_t request_queue;
+#endif
 
-//Create and send a request to the thread pool
+//Create and send a request to the thread pool if using FreeRTOS
+//Otherwise, directly execute that thread right then and there.
 static void _makeRequest(loadedProgram *program, void (*f)(loadedProgram *, void *), void *arg)
 {
   struct Request r;
@@ -421,7 +442,13 @@ static void _makeRequest(loadedProgram *program, void (*f)(loadedProgram *, void
   r.program = program;
   r.f = f;
   r.arg = arg;
+
+  #ifdef INC_FREERTOS_H
   xQueueSend(request_queue, &r, portMAX_DELAY);
+  #else
+  r.f(r.program, r.arg);
+  deref_prog(r.program);
+  #endif
 }
 
 void _Acorns::makeRequest(const char *id, void (*f)(loadedProgram *, void *), void *arg)
@@ -437,17 +464,17 @@ void _Acorns::makeRequest(const char *id, void (*f)(loadedProgram *, void *), vo
   GIL_UNLOCK;
 }
 
+#ifdef INC_FREERTOS_H
 //The loop thar threads in the thread pool actually run
 static void InterpreterTask(void *)
 {
   struct Request rq;
-  struct loadedProgram *ud;
 
   while (1)
   {
     xQueueReceive(request_queue, &rq, portMAX_DELAY);
     GIL_LOCK;
-
+    
     while (rq.program->busy)
     {
       GIL_UNLOCK;
@@ -470,6 +497,8 @@ static void InterpreterTask(void *)
     GIL_UNLOCK;
   }
 }
+#endif
+
 
 /**********************************************************************************************/
 //Callback stuff
@@ -681,6 +710,7 @@ static struct loadedProgram **_programSlotForId(const char *id)
   }
   return 0;
 }
+
 
 //Only call under gil
 static void deref_prog(loadedProgram *p)
@@ -1579,9 +1609,7 @@ void _Acorns::getConfig(const char * key, const char * d, char * buf, int maxlen
       memcpy(section, key, (x - key) + 1);
       section[x - key] = 0;
       char *akey = x + 1;
-
       ini_gets(section, akey, "", buf, maxlen, cfg_inifile);
-
       if (strlen(buf))
       {
         return;
@@ -1639,9 +1667,14 @@ static void findLocalNtp()
 //Configure wifi according to the config file
 static void wifiConnect()
 {
+
   char ssid[65];
   char psk[65];
   char wifimode[8];
+  
+  //This feature is awful. It wears out memory.
+  //Always turn it off
+  WiFi.persistent(false);
 
   //Ensure the existance of the file.
   FILE *f = fopen(cfg_inifile, "r");
@@ -1681,7 +1714,7 @@ static void wifiConnect()
 
 
 
-
+#ifndef ESP8266
 static void WiFiEvent(WiFiEvent_t event){
   switch (event)
   {
@@ -1693,6 +1726,7 @@ static void WiFiEvent(WiFiEvent_t event){
     break;
   }
 }
+#endif
 
 //**************************************************************************************/
 //General system control
@@ -1808,9 +1842,33 @@ void _Acorns::begin()
 {
   return _Acorns::begin(0);
 }
+
+#ifdef ESP8266
+WiFiEventHandler disconnectedEventHandler;
+#endif
+
+static SQInteger sqformat(HSQUIRRELVM v)
+  {
+  SPIFFS.format();
+    if (SPIFFS.begin()==false)
+    {
+      sq_throwerror(v, "Failed to format and mount");
+      return SQ_ERROR;
+    }
+    return 0;
+  
+}
+bool spiffsPosixBegin();
 //Initialize squirrel task management
 void _Acorns::begin(const char * prgsdir)
 {
+    //Give the system file access
+  if(spiffsPosixBegin==false)
+  {
+    Serial.println("SPIFFS mount failed, you can format using spiffsFormat(), but all data will be deleted.");
+    Serial.println("Functions using the filesystem will not work.");
+  }
+
   if (prgsdir == 0)
   {
     prgsdir = "/spiffs/sqprogs";
@@ -1830,8 +1888,10 @@ void _Acorns::begin(const char * prgsdir)
     loadedPrograms[i] == 0;
   }
 
+  #ifdef INC_FREERTOS_H
   _acorns_gil_lock = xSemaphoreCreateBinary();
   xSemaphoreGive(_acorns_gil_lock);
+  #endif
 
   //This will probably seed the RNG far better than anyone should even think of needing
   //For non-crypto stuff.
@@ -1840,17 +1900,22 @@ void _Acorns::begin(const char * prgsdir)
 
   entropy += esp_random() << 32;
   entropy += esp_random();
-
   //Start the root interpreter
   rootInterpreter = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
 
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
   rootInterpreter->workingDir = 0;
-
   //Setup the config system
   loadConfig();
-
-  WiFi.onEvent(WiFiEvent);
+ 
+  #ifdef ESP8266
+    disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event)
+    {
+      wifiConnect();
+    });
+  #else
+    WiFi.onEvent(WiFiEvent);
+  #endif
   wifiConnect();
 
   //Lets us advertise a hostname. This already has it's own auto reconnect logic.
@@ -1858,17 +1923,18 @@ void _Acorns::begin(const char * prgsdir)
   Acorns.getConfig("wifi.hostname", "", hostname, 32);
   if (strlen(hostname))
   {
-    Serial.println("Doing MDNS begin");
+    Serial.print("MDNS Name: ");
+    Serial.println(hostname);
     MDNS.begin(hostname);
   }
 
   registerFunction(0, sqwriteconfig, "setConfig");
-
   registerFunction(0, sqlorem, "lorem");
   registerFunction(0, sqrandom, "random");
   registerFunction(0, sqimport, "import");
   registerFunction(0, sqcloseProgram, "forceClose");
   registerFunction(0, sqexit, "exit");
+  registerFunction(0, sqformat, "formatSPIFFS");
 
 
   addlibs(rootInterpreter->vm);
@@ -1912,6 +1978,7 @@ void _Acorns::begin(const char * prgsdir)
   rootInterpreter->parent = 0;
   rootInterpreter->errorfunc = 0;
 
+  #ifdef INC_FREERTOS_H
   request_queue = xQueueCreate(25, sizeof(struct Request));
 
   for (char i = 0; i < ACORNS_THREADS; i++)
@@ -1924,6 +1991,7 @@ void _Acorns::begin(const char * prgsdir)
                             &sqTasks[i],
                             1);
   }
+  #endif
 
   Serial.println("Initialized root interpreter.");
 

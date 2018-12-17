@@ -3,7 +3,7 @@
 #include <sqstdstring.h>
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
+#include "posix_compat.h"
 #include <ctype.h>
 #include <assert.h>
 

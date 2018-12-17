@@ -167,7 +167,13 @@ static SQInteger sqserial_begin(HSQUIRRELVM v)
   sq_getinstanceup(v, 1, (void **)&s, 0);
 
   //Just to be safe, use the config.
+  #ifdef ESP32
   s->begin(baud, SERIAL_8N2, rxpin, txpin);
+  #elif ESP8266
+  s->begin(baud, SERIAL_8N2, SERIAL_FULL, txpin);
+  #else
+  #error No suppport for chip
+  #endif
   return 0;
 }
 

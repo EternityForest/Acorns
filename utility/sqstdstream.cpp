@@ -1,6 +1,6 @@
 /* see copyright notice in squirrel.h */
 #include <new>
-#include <stdio.h>
+#include "posix_compat.h"
 #include <stdlib.h>
 #include <string.h>
 #include <squirrel.h>
