@@ -22,9 +22,9 @@ SOFTWARE.*/
 
 #include "Arduino.h"
 
+#include "utility/squirrel.h"
 extern "C"
 {
-#include "utility/squirrel.h"
 #include "utility/sqstdblob.h"
 #include "utility/sqstdsystem.h"
 #include "utility/sqstdio.h"

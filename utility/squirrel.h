@@ -27,6 +27,7 @@ THE SOFTWARE.
 #endif
 
 #ifdef __cplusplus
+#include "Arduino.h"
 extern "C" {
 #endif
 
@@ -331,6 +332,11 @@ SQUIRREL_API const SQChar *sq_getlocal(HSQUIRRELVM v,SQUnsignedInteger level,SQU
 SQUIRREL_API SQRESULT sq_getcallee(HSQUIRRELVM v);
 SQUIRREL_API const SQChar *sq_getfreevariable(HSQUIRRELVM v,SQInteger idx,SQUnsignedInteger nval);
 SQUIRREL_API SQRESULT sq_throwerror(HSQUIRRELVM v,const SQChar *err);
+#ifdef __cplusplus
+//Special CPP-only API for throwing directly from flash
+SQUIRREL_API SQRESULT sq_throwerror_f(HSQUIRRELVM v,const __FlashStringHelper * s);
+#endif
+
 SQUIRREL_API SQRESULT sq_throwobject(HSQUIRRELVM v);
 SQUIRREL_API void sq_reseterror(HSQUIRRELVM v);
 SQUIRREL_API void sq_getlasterror(HSQUIRRELVM v);

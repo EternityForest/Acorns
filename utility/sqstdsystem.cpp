@@ -40,7 +40,7 @@ static SQInteger _system_system(HSQUIRRELVM v)
         sq_pushinteger(v,scsystem(s));
         return 1;
     }
-    return sq_throwerror(v,_SC("wrong param"));
+    return sq_throwerror_f(v,F("wrong param"));
 }
 
 static SQInteger _system_remove(HSQUIRRELVM v)
@@ -48,7 +48,7 @@ static SQInteger _system_remove(HSQUIRRELVM v)
     const SQChar *s;
     sq_getstring(v,2,&s);
     if(scremove(s)==-1)
-        return sq_throwerror(v,_SC("remove() failed"));
+        return sq_throwerror_f(v,F("remove() failed"));
     return 0;
 }
 
@@ -95,7 +95,7 @@ static SQInteger _system_date(HSQUIRRELVM v)
     else
         date = localtime(&t);
     if(!date)
-        return sq_throwerror(v,_SC("crt api failure"));
+        return sq_throwerror_f(v,F("crt api failure"));
     sq_newtable(v);
     _set_integer_slot(v, _SC("sec"), date->tm_sec);
     _set_integer_slot(v, _SC("min"), date->tm_min);
@@ -116,7 +116,7 @@ static SQInteger _system_rename(HSQUIRRELVM v)
     sq_getstring(v,2,&oldn);
     sq_getstring(v,3,&newn);
     if(screname(oldn,newn)==-1)
-        return sq_throwerror(v,_SC("rename() failed"));
+        return sq_throwerror_f(v,F("rename() failed"));
     return 0;
 }
 

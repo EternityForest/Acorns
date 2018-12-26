@@ -152,7 +152,7 @@ static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &dirname) == SQ_ERROR)
   {
-    sq_throwerror(v, "dir requires one string parameter.");
+   sq_throwerror_f(v,F("dir requires one string parameter."));
     return SQ_ERROR;
   }
 
@@ -166,7 +166,7 @@ static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
 
   if (*d == 0)
   {
-    return sq_throwerror(v, "Could not open directory");
+    return sq_throwerror_f(v,F("Could not open directory"));
   }
   return 1;
 }
@@ -189,7 +189,7 @@ static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
 
   if (*d == 0)
   {
-    return sq_throwerror(v, "This directory object is invalid or has been closed");
+    return sq_throwerror_f(v,F("This directory object is invalid or has been closed"));
   }
   de = readdir(*d);
 
@@ -330,7 +330,7 @@ static SQInteger sqimport(HSQUIRRELVM v)
   {
     if (sq_getstring(v, 2, &mname) == SQ_ERROR)
     {
-      sq_throwerror(v, "Name must be a string");
+     sq_throwerror_f(v,F("Name must be a string"));
       return SQ_ERROR;
     }
 
@@ -385,12 +385,12 @@ static SQInteger sqimport(HSQUIRRELVM v)
       return 1;
     }
 
-    sq_throwerror(v, "No import handler found");
+   sq_throwerror_f(v,F("No import handler found"));
     return SQ_ERROR;
   }
   else
   {
-    sq_throwerror(v, "import takes exactly one parameter");
+   sq_throwerror_f(v,F("import takes exactly one parameter"));
     return SQ_ERROR;
   }
 }
@@ -1474,14 +1474,14 @@ static SQInteger sqgetconfigfromini(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &key) == SQ_ERROR)
   {
-    return sq_throwerror(v, "Key must be str");
+    return sq_throwerror_f(v,F("Key must be str"));
   }
   char *x = strchr(key, '.');
   if (x)
   {
     if (x - key > 47)
     {
-      return sq_throwerror(v, "Section is too long(max 48 bytes)");
+      return sq_throwerror_f(v,F("Section is too long(max 48 bytes)"));
     }
     memcpy(section, key, (x - key) + 1);
     section[x - key] = 0;
@@ -1540,13 +1540,13 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &key) == SQ_ERROR)
   {
-    return sq_throwerror(v, "Key must be str");
+    return sq_throwerror_f(v,F("Key must be str"));
   }
   if (sq_getstring(v, 3, &val) == SQ_ERROR)
   {
     if (sq_tostring(v, 3) == SQ_ERROR)
     {
-      return sq_throwerror(v, "Requires 2 args");
+      return sq_throwerror_f(v,F("Requires 2 args"));
     }
     sq_getstring(v, 3, &val);
   }
@@ -1556,7 +1556,7 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
   {
     if (x - key > 47)
     {
-      return sq_throwerror(v, "Section is too long(max 48 bytes)");
+      return sq_throwerror_f(v,F("Section is too long(max 48 bytes)"));
     }
     memcpy(section, key, (x - key) + 1);
     section[x - key] = 0;
@@ -1831,7 +1831,7 @@ static HSQOBJECT ReplThreadObj;
 static SQInteger sqexit(HSQUIRRELVM v)
 {
   sq_request_forceclose(v);
-  sq_throwerror(v, "exit() function called");
+ sq_throwerror_f(v,F("exit() function called"));
   return SQ_ERROR;
   return (0);
 }
@@ -1852,7 +1852,7 @@ static SQInteger sqformat(HSQUIRRELVM v)
   SPIFFS.format();
     if (SPIFFS.begin()==false)
     {
-      sq_throwerror(v, "Failed to format and mount");
+     sq_throwerror_f(v,F("Failed to format and mount"));
       return SQ_ERROR;
     }
     return 0;
