@@ -1571,10 +1571,16 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
 
 
 /*First try to get a value from the table itself. Failing that, try to get a value from the .ini file.*/
+String _Acorns::getConfig(String key, String d)
+{
+  char buffer[128];
+  getConfig(key.c_str(),d.c_str(),buffer, 128);
+  return String(buffer);
+}
 
 void _Acorns::getConfig(const char * key, const char * d, char * buf, int maxlen )
 {
-  char section[256];
+  char section[64];
 
   char *x = strchr(key, '.');
 

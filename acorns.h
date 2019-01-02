@@ -76,6 +76,8 @@ class _Acorns
     int isRunning(const char * id);
     int isRunning(const char * id, const char * hash);
     void getConfig(const char * key, const char * d, char * buf, int maxlen );
+    String getConfig(String key, String d);
+
     int loadFromFile(const char * fn);
     int loadFromDir(const char * dir);
 

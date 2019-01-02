@@ -202,7 +202,6 @@ Waits for a program to finish, then stops it.
 
 Takes a character of input to the REPL loop. This loop has it's own program, and any output is printed to Serial.
 
-
 ### Acorns.getConfig(const char * key, const char * default, char * buffer, char * bufferlen)
 
 Reads a configuration value into buffer. Key is in "section.key" format, like the config table within squirrel code.
@@ -210,6 +209,9 @@ Reads a configuration value into buffer. Key is in "section.key" format, like th
 This function will first try to read from the table itself, and if the key isn't there, it will look in the ini file.
 
 If it's not there either, the default is used.
+
+### Acorns.getConfig(String key, String * d)
+Same as above, but returns the config as a String object.
 
 ###  SQInteger Acorns.registerFunction(const char* id,SQFUNCTION f,const char *fname)
 
