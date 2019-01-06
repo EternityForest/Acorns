@@ -700,7 +700,7 @@ bool SQVM::Execute(SQObjectPtr &closure, SQInteger nargs, SQInteger stackbase,SQ
 
     if ((_nnativecalls + 1) > MAX_NATIVE_CALLS) { Raise_Error(F("Native stack overflow")); return false; }
     _nnativecalls++;
-    AutoDec ad(&_nnativecalls);
+    AutoDec16 ad(&_nnativecalls);
     SQInteger traps = 0;
     CallInfo *prevci = ci;
 
@@ -1369,7 +1369,7 @@ SQInteger SQVM::FallBackGet(const SQObjectPtr &self,const SQObjectPtr &key,SQObj
         if(_delegable(self)->GetMetaMethod(this, MT_GET, closure)) {
             Push(self);Push(key);
             _nmetamethodscall++;
-            AutoDec ad(&_nmetamethodscall);
+            AutoDec16 ad(&_nmetamethodscall);
             if(Call(closure, 2, _top - 2, dest, SQFalse)) {
                 Pop(2);
                 return FALLBACK_OK;
@@ -1439,7 +1439,7 @@ SQInteger SQVM::FallBackSet(const SQObjectPtr &self,const SQObjectPtr &key,const
         if(_delegable(self)->GetMetaMethod(this, MT_SET, closure)) {
             Push(self);Push(key);Push(val);
             _nmetamethodscall++;
-            AutoDec ad(&_nmetamethodscall);
+            AutoDec16 ad(&_nmetamethodscall);
             if(Call(closure, 3, _top - 3, t, SQFalse)) {
                 Pop(3);
                 return FALLBACK_OK;

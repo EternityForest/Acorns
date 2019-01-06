@@ -213,6 +213,10 @@ If it's not there either, the default is used.
 ### Acorns.getConfig(String key, String * d)
 Same as above, but returns the config as a String object.
 
+### setConfig(String key, String value)
+
+Set a config value
+
 ###  SQInteger Acorns.registerFunction(const char* id,SQFUNCTION f,const char *fname)
 
 Register a SQFUNCTION(Of the type you would use to create a closure using the usual C api) to the given program ID(pass NULL for the root, which makes it accessible
@@ -275,3 +279,6 @@ The char * will be the error info str. It's not malloced, so don't free it.
 
 Define this function, it takes a string and a length. If you have that object, push it to the stack and return 1,
 otherwise return 0. The system will handle all caching.
+
+### sq_throwerror_f
+Exactly like sq_throwerror, but takes a string defined with the F macro to save space.

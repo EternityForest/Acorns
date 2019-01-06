@@ -1150,15 +1150,18 @@ void sq_resetobject(HSQOBJECT *po)
 
 static void Fcopy(char* buf, const __FlashStringHelper *ifsh)
 {
-  const char PROGMEM *p = (const char PROGMEM *)ifsh;
+  const char *p = (const char *)ifsh;
   int i = 0;
   uint8_t c  = 0;
   do
   {
-    c = pgm_read_byte(p++);
+    //No we cannot just decalare that var the right type.
+    //It gives an error on the 8266, which I'm still trying to support
+    c = pgm_read_byte((const char PROGMEM *)(p++));
     buf[i++] = c;
   } while ( c != 0 );
 }
+
 
 SQRESULT sq_throwerror_f(HSQUIRRELVM v,const __FlashStringHelper * s)
 {

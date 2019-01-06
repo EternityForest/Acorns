@@ -60,12 +60,14 @@ SQRESULT sq_stackinfos(HSQUIRRELVM v, SQInteger level, SQStackInfos *si)
 
 static void Fcopy(char* buf, const __FlashStringHelper *ifsh)
 {
-  const char PROGMEM *p = (const char PROGMEM *)ifsh;
+  const char *p = (const char *)ifsh;
   int i = 0;
   uint8_t c  = 0;
   do
   {
-    c = pgm_read_byte(p++);
+    //No we cannot just decalare that var the right type.
+    //It gives an error on the 8266, which I'm still trying to support
+    c = pgm_read_byte((const char PROGMEM *)(p++));
     buf[i++] = c;
   } while ( c != 0 );
 }

@@ -102,7 +102,7 @@ static SQInteger sqwire_write(HSQUIRRELVM v)
 
   if (sq_getinteger(v, 2, &addr) == SQ_ERROR)
   {
-    sq_throwerror(v, "Expected an integer between 0 and 255");
+    sq_throwerror_f(v, F("Expected an integer between 0 and 255"));
     return SQ_ERROR;
   }
 
@@ -115,12 +115,12 @@ static SQInteger sqwire_write(HSQUIRRELVM v)
   sqstd_getblob(v, 3, (void **)&buf);
   if (buf == 0)
   {
-    return sq_throwerror(v,"Second parameter must be a blob");
+    return sq_throwerror_f(v,F("Second parameter must be a blob"));
   }
   char b = sqstd_getblobsize(v, 3);
   if (b > 32)
   {
-    return sq_throwerror(v, "Max of 32 bytes is allowed");
+    return sq_throwerror_f(v, F("Max of 32 bytes is allowed"));
   }
   while (x < b)
   {
@@ -130,11 +130,11 @@ static SQInteger sqwire_write(HSQUIRRELVM v)
   char ret = Wire.endTransmission(true);
   if (ret == 2)
   {
-    return sq_throwerror(v,"Address NACK. Does slave exist?");
+    return sq_throwerror_f(v,F("Address NACK. Does slave exist?"));
   }
   if (ret == 3)
   {
-    return sq_throwerror(v, "Data NACK. Is data valid?");
+    return sq_throwerror_f(v, F("Data NACK. Is data valid?"));
   }
   return 0;
 }
@@ -189,13 +189,13 @@ static SQInteger sqserial_write(HSQUIRRELVM v)
   {
     if (sq_getinteger(v, 2, &b) == SQ_ERROR)
     {
-      sq_throwerror(v, "Expected an integer between 0 and 255");
+      sq_throwerror_f(v, F("Expected an integer between 0 and 255"));
       return SQ_ERROR;
     }
   }
   else
   {
-    sq_throwerror(v, "HardwareSerial.write takes exactly one parameter");
+    sq_throwerror_f(v, F("HardwareSerial.write takes exactly one parameter"));
     return SQ_ERROR;
   }
 

@@ -13,6 +13,8 @@
 #define DONT_FALL_BACK 666
 //#define EXISTS_FALL_BACK -1
 
+#define SQCanBe16 uint16_t
+
 #define GET_FLAG_RAW                0x00000001
 #define GET_FLAG_DO_NOT_RAISE_ERROR 0x00000002
 //base lib
@@ -22,8 +24,8 @@ struct SQExceptionTrap{
     SQExceptionTrap() {}
     SQExceptionTrap(SQInteger ss, SQInteger stackbase,SQInstruction *ip, SQInteger ex_target){ _stacksize = ss; _stackbase = stackbase; _ip = ip; _extarget = ex_target;}
     SQExceptionTrap(const SQExceptionTrap &et) { (*this) = et;  }
-    SQInteger _stackbase;
-    SQInteger _stacksize;
+    SQCanBe16 _stackbase;
+    SQCanBe16 _stacksize;
     SQInstruction *_ip;
     SQInteger _extarget;
 };
@@ -40,11 +42,12 @@ struct SQVM : public CHAINABLE_OBJ
         SQObjectPtr *_literals;
         SQObjectPtr _closure;
         SQGenerator *_generator;
-        SQInt32 _etraps;
-        SQInt32 _prevstkbase;
-        SQInt32 _prevtop;
-        SQInt32 _target;
-        SQInt32 _ncalls;
+        SQCanBe16 _etraps;
+        SQCanBe16 _prevstkbase;
+        SQCanBe16 _prevtop;
+        SQCanBe16 _target;
+        //This limits the stack depth. Oh well.
+        SQCanBe16 _ncalls;
         SQBool _root;
     };
 
@@ -148,8 +151,8 @@ public:
 
     SQObjectPtrVec _stack;
 
-    SQInteger _top;
-    SQInteger _stackbase;
+    SQCanBe16 _top;
+    SQCanBe16 _stackbase;
     SQOuter *_openouters;
     SQObjectPtr _roottable;
     SQObjectPtr _lasterror;
@@ -163,8 +166,8 @@ public:
 
 
     CallInfo* _callsstack;
-    SQInteger _callsstacksize;
-    SQInteger _alloccallsstacksize;
+    SQCanBe16 _callsstacksize;
+    SQCanBe16 _alloccallsstacksize;
     sqvector<CallInfo>  _callstackdata;
 
     ExceptionsTraps _etraps;
@@ -172,8 +175,8 @@ public:
     SQUserPointer _foreignptr;
     //VMs sharing the same state
     SQSharedState *_sharedstate;
-    SQInteger _nnativecalls;
-    SQInteger _nmetamethodscall;
+    SQCanBe16 _nnativecalls;
+    SQCanBe16 _nmetamethodscall;
     SQRELEASEHOOK _releasehook;
     //suspend infos
     SQBool _suspended;
@@ -184,9 +187,18 @@ public:
 
 struct AutoDec{
     AutoDec(SQInteger *n) { _n = n; }
+
     ~AutoDec() { (*_n)--; }
     SQInteger *_n;
 };
+
+struct AutoDec16{
+    AutoDec16(uint16_t *n) { _n = n; }
+
+    ~AutoDec16() { (*_n)--; }
+    uint16_t *_n;
+};
+
 
 inline SQObjectPtr &stack_get(HSQUIRRELVM v,SQInteger idx){return ((idx>=0)?(v->GetAt(idx+v->_stackbase-1)):(v->GetUp(idx)));}
 

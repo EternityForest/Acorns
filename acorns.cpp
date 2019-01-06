@@ -42,7 +42,6 @@ SOFTWARE.*/
 #include "posix_compat.h"
 #endif
 
-
 /************************************************************************************************************/
 //Data Structures, forward declarations
 
@@ -138,6 +137,46 @@ static SQInteger sqrandom(HSQUIRRELVM v)
   return SQ_ERROR;
 }
 
+//***************************/
+String readprogstr(const char *ifsh)
+{
+  const char *p = ifsh;
+  int i = 0;
+  uint8_t c = 0;
+
+  int len = 0;
+  if(ifsh == 0)
+  {
+    return "NULLPTR";
+  }
+
+  do
+  {
+    //No we cannot just decalare that var the right type.
+    //It gives an error on the 8266, which I'm still trying to support
+    c = pgm_read_byte((const char PROGMEM *)(p++));
+    len++;
+  } while (c != 0);
+
+  char *buf = (char *)malloc(len + 2);
+  if (buf == 0)
+  {
+    return "MALLOCERR";
+  }
+
+  p = ifsh;
+  do
+  {
+    //No we cannot just decalare that var the right type.
+    //It gives an error on the 8266, which I'm still trying to support
+    c = pgm_read_byte((const char PROGMEM *)(p++));
+    buf[i++] = c;
+  } while (c != 0);
+  String s = String(buf);
+  free(buf);
+  return s;
+}
+
 /***********************************************************************/
 //Directory listing
 
@@ -152,7 +191,7 @@ static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &dirname) == SQ_ERROR)
   {
-   sq_throwerror_f(v,F("dir requires one string parameter."));
+    sq_throwerror_f(v, F("dir requires one string parameter."));
     return SQ_ERROR;
   }
 
@@ -166,7 +205,7 @@ static SQInteger sqdirectoryiterator(HSQUIRRELVM v)
 
   if (*d == 0)
   {
-    return sq_throwerror_f(v,F("Could not open directory"));
+    return sq_throwerror_f(v, F("Could not open directory"));
   }
   return 1;
 }
@@ -189,7 +228,7 @@ static SQInteger sqdirectoryiterator_next(HSQUIRRELVM v)
 
   if (*d == 0)
   {
-    return sq_throwerror_f(v,F("This directory object is invalid or has been closed"));
+    return sq_throwerror_f(v, F("This directory object is invalid or has been closed"));
   }
   de = readdir(*d);
 
@@ -218,24 +257,25 @@ static SQInteger dir_release_hook(SQUserPointer p, SQInteger size)
 /************************************************************************/
 //Quotes system
 
-const char *acorn_Quoteslist[] = {
-    "\"The men waited some time at the outpost.\"",
-    "\"This road is longer for some than others.\"",
-    "\"He carefully packed his travelsack before setting out.\"",
-    "\"His staff had been with him on many adventures.\"",
-    "\"From the top of the hill, he could see for miles.\"",
-    "\"She knew better than the others why the river was dry.\"",
-    "\"Only the fireflies lit the path as they made their way through the dark forest.\"",
-    "\"The treasure they sought had been buried years ago.\"",
-    "\"The stone glowed faintly when they passed by the door.\"",
-    "\"The mountain rose before them at the end of the path.\"",
-    "\"Her mother had warned her about this road.\"",
-    "\"The Caravansarai was still miles ahead.\"",
-    "\"His cloak was well-worn and had many small pockets\"",
-    "\"Roads go ever ever on,\nOver rock and under tree,\nBy caves where never sun has shone,\nBy streams that never find the sea;\nOver snow by winter sown,\nAnd through the merry flowers of June,\nOver grass and over stone,\nAnd under mountains in the moon.\"\n-- J. R. R. Tolkien ",
-    "\"The runes read 'I serve but the good,\n        of life and liberty'\"\n    -Leslie Fish, \"The Arizona Sword\"",
-    "\"It's dangerous to go alone! Take this.\"",
-    0};
+static const char quote_0[] PROGMEM = ("\"The men waited some time at the outpost.\"");
+static const char quote_1[] PROGMEM = ("\"This road is longer for some than others.\"");
+static const char quote_2[] PROGMEM = ("\"He carefully packed his travelsack before setting out.\"");
+static const char quote_3[] PROGMEM = ("\"His staff had been with him on many adventures.\"");
+static const char quote_4[] PROGMEM = ("\"From the top of the hill, he could see for miles.\"");
+static const char quote_5[] PROGMEM = ("\"She knew better than the others why the river was dry.\"");
+static const char quote_6[] PROGMEM = ("\"Only the fireflies lit the path as they made their way through the dark forest.\"");
+static const char quote_7[] PROGMEM = ("\"The treasure they sought had been buried years ago.\"");
+static const char quote_8[] PROGMEM = ("\"The stone glowed faintly when they passed by the door.\"");
+static const char quote_9[] PROGMEM = ("\"The mountain rose before them at the end of the path.\"");
+static const char quote_10[] PROGMEM = ("\"Her mother had warned her about this road.\"");
+static const char quote_11[] PROGMEM = ("\"The Caravansarai was still miles ahead.\"");
+static const char quote_12[] PROGMEM = ("\"His cloak was well-worn and had many small pockets\"");
+static const char quote_13[] PROGMEM = ("\"Roads go ever ever on,\nOver rock and under tree,\nBy caves where never sun has shone,\nBy streams that never find the sea;\nOver snow by winter sown,\nAnd through the merry flowers of June,\nOver grass and over stone,\nAnd under mountains in the moon.\"\n-- J. R. R. Tolkien ");
+static const char quote_14[] PROGMEM = ("\"The runes read 'I serve but the good,\n        of life and liberty'\"\n    -Leslie Fish, \"The Arizona Sword\"");
+static const char quote_15[] PROGMEM = ("\"It's dangerous to go alone! Take this.\"");
+
+const char *const acorn_Quoteslist[] PROGMEM = {quote_0, quote_1, quote_2, quote_3, quote_4, quote_5, quote_6,
+                                                quote_7, quote_8, quote_9, quote_10, quote_11, quote_12, quote_13, quote_14, quote_15, 0};
 
 static int numQuotes()
 {
@@ -248,20 +288,20 @@ static int numQuotes()
   return (i);
 }
 
-static const char *acorn_getQuote()
+String acorn_getQuote()
 {
-  return acorn_Quoteslist[(doRandom() % numQuotes())];
+  return readprogstr(acorn_Quoteslist[(doRandom() % numQuotes())]);
 }
 
-const char *_Acorns::getQuote()
+String _Acorns::getQuote()
 {
-  return acorn_Quoteslist[(doRandom() % numQuotes())];
+  return readprogstr(acorn_Quoteslist[(doRandom() % numQuotes())]);
 }
 
 static SQInteger sqlorem(HSQUIRRELVM v)
 {
 
-  sq_pushstring(v, acorn_getQuote(), -1);
+  sq_pushstring(v, acorn_getQuote().c_str(), -1);
   return 1;
 }
 
@@ -330,7 +370,7 @@ static SQInteger sqimport(HSQUIRRELVM v)
   {
     if (sq_getstring(v, 2, &mname) == SQ_ERROR)
     {
-     sq_throwerror_f(v,F("Name must be a string"));
+      sq_throwerror_f(v, F("Name must be a string"));
       return SQ_ERROR;
     }
 
@@ -385,12 +425,12 @@ static SQInteger sqimport(HSQUIRRELVM v)
       return 1;
     }
 
-   sq_throwerror_f(v,F("No import handler found"));
+    sq_throwerror_f(v, F("No import handler found"));
     return SQ_ERROR;
   }
   else
   {
-   sq_throwerror_f(v,F("import takes exactly one parameter"));
+    sq_throwerror_f(v, F("import takes exactly one parameter"));
     return SQ_ERROR;
   }
 }
@@ -443,12 +483,12 @@ static void _makeRequest(loadedProgram *program, void (*f)(loadedProgram *, void
   r.f = f;
   r.arg = arg;
 
-  #ifdef INC_FREERTOS_H
+#ifdef INC_FREERTOS_H
   xQueueSend(request_queue, &r, portMAX_DELAY);
-  #else
+#else
   r.f(r.program, r.arg);
   deref_prog(r.program);
-  #endif
+#endif
 }
 
 void _Acorns::makeRequest(const char *id, void (*f)(loadedProgram *, void *), void *arg)
@@ -474,7 +514,7 @@ static void InterpreterTask(void *)
   {
     xQueueReceive(request_queue, &rq, portMAX_DELAY);
     GIL_LOCK;
-    
+
     while (rq.program->busy)
     {
       GIL_UNLOCK;
@@ -498,7 +538,6 @@ static void InterpreterTask(void *)
   }
 }
 #endif
-
 
 /**********************************************************************************************/
 //Callback stuff
@@ -629,32 +668,30 @@ static struct loadedProgram *rootInterpreter = 0;
 //This is our "program table"
 static struct loadedProgram *loadedPrograms[ACORNS_MAXPROGRAMS];
 
-
-
-String _Acorns::joinWorkingDir(HSQUIRRELVM v,char * dir)
+String _Acorns::joinWorkingDir(HSQUIRRELVM v, char *dir)
 {
-    //Abs path
-    if(dir[0]=='/')
-    {
-      return dir;
-    }
+  //Abs path
+  if (dir[0] == '/')
+  {
+    return dir;
+  }
 
-    struct loadedProgram *prg = ((loadedProgram *)sq_getforeignptr(v));
-    if(prg->workingDir==0)
-    {
-      return dir;
-    }
-    return String(prg->workingDir)+"/"+dir;
+  struct loadedProgram *prg = ((loadedProgram *)sq_getforeignptr(v));
+  if (prg->workingDir == 0)
+  {
+    return dir;
+  }
+  return String(prg->workingDir) + "/" + dir;
 }
 
 static SQInteger sqwire_read(HSQUIRRELVM v)
 {
-   struct loadedProgram *prg = ((loadedProgram *)sq_getforeignptr(v));
-    if(prg->workingDir==0)
-    {
-      sq_pushstring(v,"",0);
-    }
-    sq_pushstring(v,prg->workingDir,-1);
+  struct loadedProgram *prg = ((loadedProgram *)sq_getforeignptr(v));
+  if (prg->workingDir == 0)
+  {
+    sq_pushstring(v, "", 0);
+  }
+  sq_pushstring(v, prg->workingDir, -1);
 }
 
 //Given a string program ID, return the loadedProgram object
@@ -711,7 +748,6 @@ static struct loadedProgram **_programSlotForId(const char *id)
   return 0;
 }
 
-
 //Only call under gil
 static void deref_prog(loadedProgram *p)
 {
@@ -719,10 +755,10 @@ static void deref_prog(loadedProgram *p)
   if (p->refcount == 0)
   {
     if (p->inputBuffer)
-      {
-        free(p->inputBuffer);
-        p->inputBuffer = 0;
-      }
+    {
+      free(p->inputBuffer);
+      p->inputBuffer = 0;
+    }
     free(p);
   }
 }
@@ -848,7 +884,7 @@ static void _runInputBuffer(loadedProgram *p, void *d)
   }
   else
   {
-    Serial.println("Failed to compile code");
+    Serial.println(F("Failed to compile code"));
     return;
   }
 
@@ -976,9 +1012,9 @@ static SQInteger sqcloseProgram(HSQUIRRELVM v)
 
 //Passing a null to input tries to load the program's input buffer as the replacement for the program.
 //If there's no old program or no input buffer, does nothing.
-static int _loadProgram(const char * code, const char * id, bool synchronous,
-    void (*errorfunc)(loadedProgram *, const char *),
-    void (*printfunc)(loadedProgram *, const char *), const char * workingDir)
+static int _loadProgram(const char *code, const char *id, bool synchronous,
+                        void (*errorfunc)(loadedProgram *, const char *),
+                        void (*printfunc)(loadedProgram *, const char *), const char *workingDir)
 
 {
   //Don't show the message when we load the empty program just to write things to the buffer
@@ -1008,13 +1044,13 @@ static int _loadProgram(const char * code, const char * id, bool synchronous,
       }
       else
       {
-        Serial.println("No code or input buffer, cannot load");
+        Serial.println(F("No code or input buffer, cannot load"));
         return 1;
       }
     }
     else
     {
-      Serial.println("No code or previous program input buffer, cannot load");
+      Serial.println(F("No code or previous program input buffer, cannot load"));
       return 1;
     }
   }
@@ -1029,7 +1065,7 @@ static int _loadProgram(const char * code, const char * id, bool synchronous,
     //Check if the versions are the same
     if (memcmp(old->hash, code, PROG_HASH_LEN) == 0)
     {
-      Serial.println("That exact program version is already loaded, doing nothing.");
+      Serial.println(F("That exact program version is already loaded, doing nothing."));
       return 0;
     }
 
@@ -1062,9 +1098,9 @@ static int _loadProgram(const char * code, const char * id, bool synchronous,
       loadedPrograms[i]->printfunc = printfunc;
       loadedPrograms[i]->workingDir = 0;
 
-      if(workingDir)
+      if (workingDir)
       {
-        loadedPrograms[i]->workingDir= (char*)malloc(strlen(workingDir)+1);
+        loadedPrograms[i]->workingDir = (char *)malloc(strlen(workingDir) + 1);
         strcpy(loadedPrograms[i]->workingDir, workingDir);
       }
 
@@ -1137,7 +1173,7 @@ static int _loadProgram(const char * code, const char * id, bool synchronous,
         }
         //If we can't compile the code, don't load it at all.
         _closeProgram(id);
-        Serial.println("Failed to compile code");
+        Serial.println(F("Failed to compile code"));
       }
 
       return 0;
@@ -1149,12 +1185,11 @@ static int _loadProgram(const char * code, const char * id, bool synchronous,
     inputBufToFree = 0;
   }
   //err, could not find free slot for program
-  Serial.println("No free program slots");
+  Serial.println(F("No free program slots"));
   return 1;
 }
 
-
-int _Acorns::isRunning(const char * id, const char * hash)
+int _Acorns::isRunning(const char *id, const char *hash)
 {
   GIL_LOCK;
   struct loadedProgram *x = _programForId(id);
@@ -1182,50 +1217,50 @@ int _Acorns::isRunning(const char * id, const char * hash)
   }
 }
 
-int _Acorns::isRunning(const char * id)
+int _Acorns::isRunning(const char *id)
 {
   return isRunning(id, 0);
 }
 
-int _Acorns::loadProgram(const char * code, const char * id)
+int _Acorns::loadProgram(const char *code, const char *id)
 {
   GIL_LOCK;
-  _loadProgram(code, id, false, 0, 0,0);
+  _loadProgram(code, id, false, 0, 0, 0);
   GIL_UNLOCK;
 }
 
-int _Acorns::runProgram(const char * code, const char * id)
+int _Acorns::runProgram(const char *code, const char *id)
 {
   GIL_LOCK;
-  _loadProgram(code, id, true, 0, 0,0);
+  _loadProgram(code, id, true, 0, 0, 0);
   GIL_UNLOCK;
 }
-int _Acorns::runProgram(const char * code, const char * id, void (*onerror)(loadedProgram *,const char *),void (*onprint)(loadedProgram *,const char *),const char * workingDir)
+int _Acorns::runProgram(const char *code, const char *id, void (*onerror)(loadedProgram *, const char *), void (*onprint)(loadedProgram *, const char *), const char *workingDir)
 {
   GIL_LOCK;
-  _loadProgram(code, id, true, onerror, onprint,workingDir);
+  _loadProgram(code, id, true, onerror, onprint, workingDir);
   GIL_UNLOCK;
 }
 //Load whatever is in a program's input buffer as a new program that replaces the old one.
 //Force close the old one if forceClose is true, otherwise, just wait for it.
-int  _Acorns::loadInputBuffer(const char * id, bool forceClose)
+int _Acorns::loadInputBuffer(const char *id, bool forceClose)
 {
   GIL_LOCK;
   if (forceClose)
   {
     _forceclose(id);
   }
-  _loadProgram(0, id, false, 0, 0,0);
+  _loadProgram(0, id, false, 0, 0, 0);
   GIL_UNLOCK;
 }
-int  _Acorns::loadInputBuffer(const char * id)
+int _Acorns::loadInputBuffer(const char *id)
 {
   GIL_LOCK;
-  _loadProgram(0, id, false, 0, 0,0);
+  _loadProgram(0, id, false, 0, 0, 0);
   GIL_UNLOCK;
 }
 
-int _Acorns::loadFromFile(const char * fn)
+int _Acorns::loadFromFile(const char *fn)
 {
   GIL_LOCK;
   FILE *f = fopen(fn, "r");
@@ -1235,7 +1270,7 @@ int _Acorns::loadFromFile(const char * fn)
     int sz = ftell(f);
     rewind(f);
 
-    char *buf = (char *)malloc(sz+2);
+    char *buf = (char *)malloc(sz + 2);
     int p = 0;
 
     int chr = fgetc(f);
@@ -1268,7 +1303,7 @@ int _Acorns::loadFromFile(const char * fn)
   GIL_UNLOCK;
 }
 
-int _Acorns::loadFromDir(const char * dir)
+int _Acorns::loadFromDir(const char *dir)
 {
   GIL_LOCK;
   DIR *d = opendir(dir);
@@ -1310,15 +1345,25 @@ int _Acorns::loadFromDir(const char * dir)
 //****************************************************************************/
 //Callbacks management
 
+///*******************************************************************************/
+//Functions that are stored in flash until needed
 
+/*
+struct LoadableFunction
+{
+  SQFUNCTION f;
+  char * name;
+}
+
+*/
 
 //*********************************************************************************
 //REPL
 
-
 static HSQUIRRELVM replvm;
-static loadedProgram * replprogram;
-static SQChar  replbuffer[1024];
+static loadedProgram *replprogram;
+static SQChar *replbuffer = 0;
+static int replbuffersize = 128;
 static int replpointer = 0;
 static int startofline = 0;
 static int string = 0;
@@ -1331,6 +1376,10 @@ static char esc = 0;
 
 void _Acorns::replChar(char c)
 {
+  if (replbuffer = 0)
+  {
+    replbuffer = (SQChar *)malloc(128);
+  }
   if (c == _SC('\n'))
   {
 
@@ -1378,14 +1427,29 @@ void _Acorns::replChar(char c)
     string = !string;
     replbuffer[replpointer++] = (SQChar)c;
   }
-  else if (replpointer >= 1024 - 1)
+  else if (replpointer >= 1000 - 1)
   {
-    Serial.print("sq : input line too long\n");
+    Serial.println(F("sq : input line too long\n"));
     goto resetting;
   }
   else
   {
     replbuffer[replpointer++] = (SQChar)c;
+  }
+  //Leave some margin, too tired to think about off by one
+  if (replpointer > replbuffersize - 3)
+  {
+    void *x = realloc(replbuffer, replbuffersize * 2);
+    if (x)
+    {
+      replbuffer = (char *)x;
+      replbuffersize *= 2;
+    }
+    else
+    {
+      Serial.println(F("sq : input line too long\n"));
+      goto resetting;
+    }
   }
 
   esc = 0;
@@ -1422,14 +1486,15 @@ doing:
   }
   GIL_UNLOCK;
 resetting:
+  //Done with that, make the replbuffer go to the default len if it was expanded
+  assert(replbuffer = (SQChar *)realloc(replbuffer, 128));
+  replbuffersize = 128;
   replpointer = 0;
   blocks = 0;
   string = 0;
   retval = 0;
   Serial.print("\n>>>");
-
 }
-
 
 //***********************************************************************************************************/
 //INI file config handling
@@ -1474,14 +1539,14 @@ static SQInteger sqgetconfigfromini(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &key) == SQ_ERROR)
   {
-    return sq_throwerror_f(v,F("Key must be str"));
+    return sq_throwerror_f(v, F("Key must be str"));
   }
   char *x = strchr(key, '.');
   if (x)
   {
     if (x - key > 47)
     {
-      return sq_throwerror_f(v,F("Section is too long(max 48 bytes)"));
+      return sq_throwerror_f(v, F("Section is too long(max 48 bytes)"));
     }
     memcpy(section, key, (x - key) + 1);
     section[x - key] = 0;
@@ -1531,6 +1596,13 @@ void loadConfig()
   */
 }
 
+static void refreshConfig()
+{
+  Acorns.tz.setPosix(Acorns.getConfig("time.posixtz", "PST8PDT,M3.2.0,M11.1.0"));
+  setInterval(Acorns.getConfig("time.syncinterval", "0").toInt());
+  setServer(Acorns.getConfig("time.ntpserver", "pool.ntp.org"));
+}
+
 static SQInteger sqwriteconfig(HSQUIRRELVM v)
 {
   const char *key;
@@ -1540,13 +1612,13 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
 
   if (sq_getstring(v, 2, &key) == SQ_ERROR)
   {
-    return sq_throwerror_f(v,F("Key must be str"));
+    return sq_throwerror_f(v, F("Key must be str"));
   }
   if (sq_getstring(v, 3, &val) == SQ_ERROR)
   {
     if (sq_tostring(v, 3) == SQ_ERROR)
     {
-      return sq_throwerror_f(v,F("Requires 2 args"));
+      return sq_throwerror_f(v, F("Requires 2 args"));
     }
     sq_getstring(v, 3, &val);
   }
@@ -1556,7 +1628,7 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
   {
     if (x - key > 47)
     {
-      return sq_throwerror_f(v,F("Section is too long(max 48 bytes)"));
+      return sq_throwerror_f(v, F("Section is too long(max 48 bytes)"));
     }
     memcpy(section, key, (x - key) + 1);
     section[x - key] = 0;
@@ -1566,19 +1638,43 @@ static SQInteger sqwriteconfig(HSQUIRRELVM v)
   }
 
   ini_puts("", key, val, cfg_inifile);
+  refreshConfig();
 }
 
+void _Acorns::setConfig(String strkey, String value)
+{
+  const char *key = strkey.c_str();
+  const char *x = strchr(key, '.');
+  char section[49];
 
+  if (x)
+  {
+    if (x - key > 47)
+    {
+      return;
+    }
+    memcpy(section, key, (x - key) + 1);
+    section[x - key] = 0;
+    key = x + 1;
+    ini_puts(section, key, value.c_str(), cfg_inifile);
+  }
+  else
+  {
+    ini_puts("", key, value.c_str(), cfg_inifile);
+  }
+
+  refreshConfig();
+}
 
 /*First try to get a value from the table itself. Failing that, try to get a value from the .ini file.*/
 String _Acorns::getConfig(String key, String d)
 {
   char buffer[128];
-  getConfig(key.c_str(),d.c_str(),buffer, 128);
+  getConfig(key.c_str(), d.c_str(), buffer, 128);
   return String(buffer);
 }
 
-void _Acorns::getConfig(const char * key, const char * d, char * buf, int maxlen )
+void _Acorns::getConfig(const char *key, const char *d, char *buf, int maxlen)
 {
   char section[64];
 
@@ -1669,7 +1765,6 @@ static void findLocalNtp()
 }
 */
 
-
 //Configure wifi according to the config file
 static void wifiConnect()
 {
@@ -1677,7 +1772,7 @@ static void wifiConnect()
   char ssid[65];
   char psk[65];
   char wifimode[8];
-  
+
   //This feature is awful. It wears out memory.
   //Always turn it off
   WiFi.persistent(false);
@@ -1712,16 +1807,11 @@ static void wifiConnect()
     Serial.print("Serving as access point with SSID: ");
     Serial.println(ssid);
   }
-   
-
-
 }
 
-
-
-
 #ifndef ESP8266
-static void WiFiEvent(WiFiEvent_t event){
+static void WiFiEvent(WiFiEvent_t event)
+{
   switch (event)
   {
   case SYSTEM_EVENT_STA_GOT_IP:
@@ -1738,7 +1828,7 @@ static void WiFiEvent(WiFiEvent_t event){
 //General system control
 
 //It's actually down below in this file
-extern struct loadedProgram * replprogram;
+extern struct loadedProgram *replprogram;
 
 static void printfunc(HSQUIRRELVM v, const SQChar *s, ...)
 {
@@ -1782,7 +1872,7 @@ static void errorfunc(HSQUIRRELVM v, const SQChar *s, ...)
 
   if (prg == replprogram)
   {
-    Serial.println("");
+    Serial.println(F(""));
     Serial.print(buf);
   }
   else
@@ -1797,13 +1887,11 @@ static void errorfunc(HSQUIRRELVM v, const SQChar *s, ...)
     }
     else
     {
-      Serial.println("");
+      Serial.println(F(""));
       Serial.print(buf);
     }
   }
 }
-
-
 
 //Adds the basic standard libraries to the squirrel VM
 static void addlibs(HSQUIRRELVM v)
@@ -1824,20 +1912,16 @@ static void addlibs(HSQUIRRELVM v)
 
 SQObject sqSerialBaseClass;
 
-
-
-void resetLoadedProgram(loadedProgram * p)
+void resetLoadedProgram(loadedProgram *p)
 {
-
 }
-
 
 static HSQOBJECT ReplThreadObj;
 
 static SQInteger sqexit(HSQUIRRELVM v)
 {
   sq_request_forceclose(v);
- sq_throwerror_f(v,F("exit() function called"));
+  sq_throwerror_f(v, F("exit() function called"));
   return SQ_ERROR;
   return (0);
 }
@@ -1854,25 +1938,29 @@ WiFiEventHandler disconnectedEventHandler;
 #endif
 
 static SQInteger sqformat(HSQUIRRELVM v)
-  {
+{
   SPIFFS.format();
-    if (SPIFFS.begin()==false)
-    {
-     sq_throwerror_f(v,F("Failed to format and mount"));
-      return SQ_ERROR;
-    }
-    return 0;
-  
+  if (SPIFFS.begin() == false)
+  {
+    sq_throwerror_f(v, F("Failed to format and mount"));
+    return SQ_ERROR;
+  }
+  return 0;
 }
 bool spiffsPosixBegin();
+
 //Initialize squirrel task management
-void _Acorns::begin(const char * prgsdir)
+void _Acorns::begin(const char *prgsdir)
 {
-    //Give the system file access
-  if(spiffsPosixBegin==false)
+
+  //No need to put load on the NTP servers if the app doesn't need it.
+  setInterval(0);
+
+  //Give the system file access
+  if (spiffsPosixBegin == false)
   {
-    Serial.println("SPIFFS mount failed, you can format using spiffsFormat(), but all data will be deleted.");
-    Serial.println("Functions using the filesystem will not work.");
+    Serial.println(F("SPIFFS mount failed, you can format using spiffsFormat(), but all data will be deleted."));
+    Serial.println(F("Functions using the filesystem will not work."));
   }
 
   if (prgsdir == 0)
@@ -1886,19 +1974,20 @@ void _Acorns::begin(const char * prgsdir)
   }
   began = true;
 
-  Serial.println("Acorns: Squirrel for Arduino");
-  Serial.println("Based on: http://www.squirrel-lang.org/\n");
+  Serial.println(F("Acorns: Squirrel for Arduino"));
+  Serial.println(F("Based on: http://www.squirrel-lang.org/\n"));
 
   for (char i = 0; i < ACORNS_MAXPROGRAMS; i++)
   {
     loadedPrograms[i] == 0;
   }
 
-  #ifdef INC_FREERTOS_H
+#ifdef INC_FREERTOS_H
   _acorns_gil_lock = xSemaphoreCreateBinary();
   xSemaphoreGive(_acorns_gil_lock);
-  #endif
-
+#endif
+  Serial.print("Free Heap: ");
+  Serial.print(ESP.getFreeHeap());
   //This will probably seed the RNG far better than anyone should even think of needing
   //For non-crypto stuff.
   rng_key += esp_random();
@@ -1912,18 +2001,19 @@ void _Acorns::begin(const char * prgsdir)
   rootInterpreter->vm = sq_open(1024); //creates a VM with initial stack size 1024
   rootInterpreter->workingDir = 0;
   //Setup the config system
-  loadConfig();
- 
-  #ifdef ESP8266
-    disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event)
-    {
-      wifiConnect();
-    });
-  #else
-    WiFi.onEvent(WiFiEvent);
-  #endif
-  wifiConnect();
 
+  loadConfig();
+
+  tz.setPosix(Acorns.getConfig("time.posixtz", "PST8PDT,M3.2.0,M11.1.0"));
+#ifdef ESP8266
+  disconnectedEventHandler = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected &event) {
+    wifiConnect();
+  });
+#else
+  WiFi.onEvent(WiFiEvent);
+#endif
+  wifiConnect();
+  ;
   //Lets us advertise a hostname. This already has it's own auto reconnect logic.
   char hostname[32];
   Acorns.getConfig("wifi.hostname", "", hostname, 32);
@@ -1942,9 +2032,8 @@ void _Acorns::begin(const char * prgsdir)
   registerFunction(0, sqexit, "exit");
   registerFunction(0, sqformat, "formatSPIFFS");
 
-
   addlibs(rootInterpreter->vm);
-  Serial.println("Added core libraries");
+  Serial.println(F("Added core libraries"));
 
   //This is part of the class, it's in acorns_aduinobindings
   addArduino(rootInterpreter->vm);
@@ -1977,14 +2066,14 @@ void _Acorns::begin(const char * prgsdir)
   //create the dir function.
   registerFunction(0, sqdirectoryiterator, "dir");
 
-  memcpy(rootInterpreter->hash, "//This is the first line of the code which will server as the ID", PROG_HASH_LEN);
+  memcpy(rootInterpreter->hash, "//RootInterpreter123456789abcde", PROG_HASH_LEN);
   rootInterpreter->busy = 0;
   rootInterpreter->inputBuffer = 0;
   rootInterpreter->inputBufferLen = 0;
   rootInterpreter->parent = 0;
   rootInterpreter->errorfunc = 0;
 
-  #ifdef INC_FREERTOS_H
+#ifdef INC_FREERTOS_H
   request_queue = xQueueCreate(25, sizeof(struct Request));
 
   for (char i = 0; i < ACORNS_THREADS; i++)
@@ -1997,9 +2086,9 @@ void _Acorns::begin(const char * prgsdir)
                             &sqTasks[i],
                             1);
   }
-  #endif
+#endif
 
-  Serial.println("Initialized root interpreter.");
+  Serial.println(F("Initialized root interpreter."));
 
   replvm = sq_newthread(rootInterpreter->vm, 1024);
   replprogram = (struct loadedProgram *)malloc(sizeof(struct loadedProgram));
@@ -2024,14 +2113,13 @@ void _Acorns::begin(const char * prgsdir)
   loadFromDir(prgsdir);
   Serial.print("Free Heap: ");
   Serial.print(ESP.getFreeHeap());
-  Serial.println("\nStarted REPL interpreter\n");
+  Serial.println(F("\nStarted REPL interpreter\n"));
   //All booted
   Serial.println(acorn_getQuote());
   Serial.print("\n>>>");
-
 }
 
-SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fname)
+SQInteger _Acorns::registerFunction(const char *id, SQFUNCTION f, const char *fname)
 {
   GIL_LOCK;
   loadedProgram *p = _programForId(id);
@@ -2043,8 +2131,7 @@ SQInteger _Acorns::registerFunction(const char *id,SQFUNCTION f,const char *fnam
   GIL_UNLOCK;
 }
 
-
-SQInteger _Acorns::setIntVariable(const char *id,long long value,const char *fname)
+SQInteger _Acorns::setIntVariable(const char *id, long long value, const char *fname)
 {
   GIL_LOCK;
   loadedProgram *p = _programForId(id);
@@ -2056,15 +2143,12 @@ SQInteger _Acorns::setIntVariable(const char *id,long long value,const char *fna
   GIL_UNLOCK;
 }
 
-
 //*******************************************************/
 //Compatibility
-
 
 //Squirrel needs this for something
 int __attribute__((weak)) system(const char *string)
 {
-  
 }
 
 ///********************************************************/
