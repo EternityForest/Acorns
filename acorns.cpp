@@ -1376,7 +1376,7 @@ static char esc = 0;
 
 void _Acorns::replChar(char c)
 {
-  if (replbuffer = 0)
+  if (replbuffer == 0)
   {
     replbuffer = (SQChar *)malloc(128);
   }
