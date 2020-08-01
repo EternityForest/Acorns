@@ -50,6 +50,8 @@ public:
   void begin();
   void begin(const char *);
 
+  void setShared(bool);
+
   int loadProgram(const char *code, const char *id);
   int runProgram(const char *code, const char *id);
   int runProgram(const char *code, const char *id, void (*errorfunc)(loadedProgram *, const char *) = NULL, void (*printfunc)(loadedProgram *, const char *) = NULL, const char *workingDir = 0);
@@ -65,6 +67,8 @@ public:
   void makeRequest(const char *, void (*f)(loadedProgram *, void *), void *arg);
 
   SQInteger registerFunction(const char *id, SQFUNCTION f, const char *fname);
+  SQInteger registerDynamicFunction(SQFUNCTION f, const char *fname);
+
   SQInteger setIntVariable(const char *id, long long value, const char *fname);
 
   void addArduino(HSQUIRRELVM);

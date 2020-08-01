@@ -234,11 +234,6 @@ static SQInteger sqserial_available(HSQUIRRELVM v)
   return 0;
 }
 
-static SQInteger sqfreeheap(HSQUIRRELVM v)
-{
-  sq_pushinteger(v, ESP.getFreeHeap());
-  return (1);
-}
 
 static SQInteger sqrestart(HSQUIRRELVM v)
 {
@@ -405,13 +400,10 @@ void _Acorns::addArduino(HSQUIRRELVM vm)
   //Now we make the "system" namespace which is just a table of static members
   sq_pushroottable(vm);
 
-  sq_pushstring(vm, "memfree", -1);
-  sq_newclosure(vm, sqfreeheap, 0); //create a new function
-  sq_newslot(vm, -3, SQFalse);
+
 
   sq_pushstring(vm, "restart", -1);
   sq_newclosure(vm, sqrestart, 0); //create a new function
-  sq_newslot(vm, -3, SQFalse);
 
   sq_settop(vm, i);
 
